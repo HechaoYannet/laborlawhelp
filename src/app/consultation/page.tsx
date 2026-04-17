@@ -232,6 +232,40 @@ export default function LaborRightsConsultation() {
     addMessage({ role: 'assistant', content: '请告诉我您的诉求' })
   }, [addMessage, clearMessages, resetExtractedInfo, resetConsultationInfo])
 
+  const fetchMcpAnswer = async (query: string): Promise<string | null> => {
+    try {
+      const response = await fetch('/api/mcp/query', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query,
+          maxTools: 3,
+        }),
+      })
+
+      if (!response.ok) {
+        return null
+      }
+
+      const data = (await response.json()) as {
+        results?: Array<{ toolName: string; text: string }>
+      }
+
+      const validResults = (data.results || []).filter(item => item.text && !item.text.startsWith('Tool call failed:'))
+      if (validResults.length === 0) {
+        return null
+      }
+
+      const lines = validResults.slice(0, 2).map(item => `• [${item.toolName}]\n${item.text.slice(0, 360)}`)
+
+      return `我已检索相关法规/案例依据，先给您要点：\n\n${lines.join('\n\n')}\n\n如果您愿意，我可以继续按这份依据帮您细化仲裁请求和证据目录。`
+    } catch {
+      return null
+    }
+  }
+
   // 提取信息
   // 生成回复
   const getAssistantResponse = async (userMessage: string): Promise<string> => {
@@ -255,6 +289,14 @@ export default function LaborRightsConsultation() {
     const isAskingCompensation = /赔偿|补偿|能拿.*少|多少钱|赔.*少/.test(lower)
     const isAskingProcess = /怎么|如何|步骤|流程|需要.*什么|准备.*什么/.test(lower)
     const isAskingLawyer = /律师|找.*人|需要.*请.*律师/.test(lower)
+    const isAskingLegalBasis = /法条|依据|法规|判例|案例|司法解释|有.*没有.*依据/.test(lower)
+
+    if (isAskingLegalBasis) {
+      const mcpAnswer = await fetchMcpAnswer(userMessage)
+      if (mcpAnswer) {
+        return mcpAnswer
+      }
+    }
 
     // 如果用户在问赔偿或流程 - 直接生成计算
     if (isAskingCompensation || isAskingProcess) {

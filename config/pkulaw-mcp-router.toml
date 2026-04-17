@@ -1,0 +1,11 @@
+# PKULAW MCP router config
+# Replace service URLs with the actual catalog entries you can access.
+
+naming = "auto"
+
+[[services]]
+name = "pkulaw-default"
+url = "https://mcp.pkulaw.com/apis/default/sse"
+
+[services.headers]
+Authorization = "Bearer ${PKULAW_MCP_TOKEN}"

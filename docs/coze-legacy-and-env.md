@@ -1,68 +1,72 @@
-# Coze 遗产清单与环境变量治理
+# Coze 遗留与环境变量治理
 
-## 1. 已识别 Coze 遗产
+本文档说明迁移期遗留项的处理策略，并给出当前版本的环境变量规范。
 
-- 平台配置
-  - .coze：定义 coze 容器运行入口与 nodejs-24 要求。
+## 1. 遗留项清单（现状）
 
-- 脚本与环境变量
-  - scripts/*.sh 与 scripts/*.mjs 中出现 COZE_WORKSPACE_PATH。
-  - src/server.ts 与 src/app/layout.tsx 中出现 COZE_PROJECT_ENV。
-
-- 品牌与元数据
-  - src/app/layout.tsx 的 metadata 中包含 Coze 文案与链接。
-
-- 开发辅助依赖
-  - react-dev-inspector 系列依赖与布局注入逻辑。
-
-- Next 配置
-  - next.config.ts 中 allowedDevOrigins 包含 *.dev.coze.site。
+1. 兼容脚本仍保留：dev:coze / build:coze / start:coze。
+2. 兼容变量仍可识别：COZE_PROJECT_ENV、COZE_WORKSPACE_PATH。
+3. 运行主链路已切换到标准 Node 环境变量（NODE_ENV/HOSTNAME/PORT）。
 
 ## 2. 保留与清理策略
 
-- 可保留（兼容层）
-  - package.json 的 dev:coze/build:coze/start:coze（仅用于迁移期）。
-  - scripts/*.sh（仅迁移期保留，不作为默认入口）。
+### 2.1 保留（短期）
 
-- 应清理（迷惑性来源）
-  - layout metadata 中 Coze 品牌文案与站点信息。
-  - 运行时对 COZE_PROJECT_ENV 的强依赖（改为 NODE_ENV + 可选开关）。
+1. Coze 兼容命令：用于迁移期回归验证。
+2. 兼容变量识别：避免历史部署配置立即失效。
 
-- 待评估后清理
-  - coze-coding-dev-sdk 依赖是否有实际业务使用。
-  - react-dev-inspector 是否需要仅在本地开发显式开关。
+### 2.2 清理（中期）
 
-## 3. Env 设计（行业通用）
+1. 文案层面不再使用 Coze 品牌相关描述。
+2. 逐步下线 COZE_* 变量依赖，统一到标准命名。
+3. 对未使用依赖（如 coze-coding-dev-sdk）执行审计后再移除。
 
-建议分层：
+## 3. 环境变量分层规范
 
-- 客户端可见变量（NEXT_PUBLIC_*）
-  - NEXT_PUBLIC_APP_URL：站点公开地址。
-  - NEXT_PUBLIC_ENABLE_DEV_INSPECTOR：开发模式下是否启用 inspector。
+### 3.1 客户端变量（NEXT_PUBLIC_*）
 
-- 服务端变量
-  - NODE_ENV：development/production。
-  - HOSTNAME：服务监听 host。
-  - PORT：服务监听端口。
-  - DEPLOY_RUN_PORT：生产启动端口（可选）。
+1. NEXT_PUBLIC_APP_URL
+2. NEXT_PUBLIC_ENABLE_DEV_INSPECTOR
 
-- 迁移兼容变量（deprecated）
-  - COZE_PROJECT_ENV。
-  - COZE_WORKSPACE_PATH。
+要求：不能放置任何密钥、token、内部地址。
 
-## 4. API key 与安全要求
+### 3.2 服务端基础变量
 
-- 未发现当前业务代码中真实外部 LLM/MCP API key 调用。
-- 若后续接入 LLM/MCP，必须满足：
-  - 仅服务端读取密钥，禁止 NEXT_PUBLIC_* 暴露密钥。
-  - 使用 .env.local（本地）与部署平台 Secret（线上）。
-  - 提供 .env.example 仅包含键名与注释，不包含真实值。
-  - 文档中明确每个变量的用途、作用域、默认值与是否必填。
+1. NODE_ENV
+2. HOSTNAME
+3. PORT
+4. DEPLOY_RUN_PORT（可选）
 
-## 5. MCP/Agent/Speech 现状说明
+### 3.3 MCP 服务端变量
 
-- Speech：本地浏览器 Web Speech API，未使用第三方语音 SDK。
-- Agent：主要为前端规则编排，不是独立 Agent runtime。
-- MCP：未发现可执行 MCP workflow 代码。
+1. PKULAW_MCP_TOKEN
+2. MCP_ROUTER_COMMAND
+3. MCP_ROUTER_ARGS
+4. MCP_ROUTER_CWD（可选）
+5. MCP_REQUEST_TIMEOUT_MS
+6. MCP_REQUEST_RETRIES
+7. MCP_GATEWAY_API_KEY（可选）
+8. MCP_ALLOWED_ORIGINS（可选）
 
-结论：当前最关键的是先做工程治理与职责拆分，再按需引入真实 LLM/MCP 能力。
+### 3.4 兼容变量（deprecated）
+
+1. COZE_PROJECT_ENV
+2. COZE_WORKSPACE_PATH
+
+## 4. 安全规范
+
+1. 所有密钥仅在服务端读取与使用。
+2. .env.example 仅保留键名与注释，不提供真实值。
+3. 生产环境密钥通过平台 Secret 管理，禁止写入仓库。
+4. 日志输出中不得包含 token、身份证号、手机号等敏感信息。
+
+## 5. 变更流程建议
+
+1. 新增变量时必须同步更新 .env.example 与 README。
+2. 变更变量语义时必须同步更新 docs/architecture.md 与 docs/plan.md。
+3. 删除变量前至少经历一个版本的 deprecated 过渡。
+
+## 6. 当前结论
+
+1. Coze 遗留已降级为兼容层，不再是主运行依赖。
+2. MCP 能力已接入服务端链路，后续重点是安全、观测和质量治理。
