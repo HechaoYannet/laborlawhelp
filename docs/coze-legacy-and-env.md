@@ -1,68 +1,63 @@
-# Coze 遗产清单与环境变量治理
+# Coze 遗产与环境变量治理
 
-## 1. 已识别 Coze 遗产
+本文档定义迁移期兼容边界，确保新开发不再被历史 Coze 语义绑架，同时保留必要兼容能力。
 
-- 平台配置
-  - .coze：定义 coze 容器运行入口与 nodejs-24 要求。
+## 1. 遗产现状
 
-- 脚本与环境变量
-  - scripts/*.sh 与 scripts/*.mjs 中出现 COZE_WORKSPACE_PATH。
-  - src/server.ts 与 src/app/layout.tsx 中出现 COZE_PROJECT_ENV。
+1. 脚本层仍保留 `dev:coze`、`build:coze`、`start:coze`。
+2. `scripts/*.mjs` 与 `src/server.ts` 存在对 Coze 变量的兼容读取。
+3. 默认开发路径已是标准命令链路，不依赖 Coze 平台。
 
-- 品牌与元数据
-  - src/app/layout.tsx 的 metadata 中包含 Coze 文案与链接。
+## 2. 变量分层规范
 
-- 开发辅助依赖
-  - react-dev-inspector 系列依赖与布局注入逻辑。
+### 2.1 客户端变量（可暴露）
 
-- Next 配置
-  - next.config.ts 中 allowedDevOrigins 包含 *.dev.coze.site。
+- `NEXT_PUBLIC_APP_URL`
+- `NEXT_PUBLIC_ENABLE_DEV_INSPECTOR`
 
-## 2. 保留与清理策略
+### 2.2 服务端变量（不可暴露）
 
-- 可保留（兼容层）
-  - package.json 的 dev:coze/build:coze/start:coze（仅用于迁移期）。
-  - scripts/*.sh（仅迁移期保留，不作为默认入口）。
+- `NODE_ENV`
+- `HOSTNAME`
+- `PORT`
+- `DEPLOY_RUN_PORT`（可选）
 
-- 应清理（迷惑性来源）
-  - layout metadata 中 Coze 品牌文案与站点信息。
-  - 运行时对 COZE_PROJECT_ENV 的强依赖（改为 NODE_ENV + 可选开关）。
+### 2.3 兼容变量（deprecated）
 
-- 待评估后清理
-  - coze-coding-dev-sdk 依赖是否有实际业务使用。
-  - react-dev-inspector 是否需要仅在本地开发显式开关。
+- `COZE_PROJECT_ENV`
+- `COZE_WORKSPACE_PATH`
 
-## 3. Env 设计（行业通用）
+规则：兼容变量只用于兜底读取，不用于新功能设计。
 
-建议分层：
+## 3. 执行策略
 
-- 客户端可见变量（NEXT_PUBLIC_*）
-  - NEXT_PUBLIC_APP_URL：站点公开地址。
-  - NEXT_PUBLIC_ENABLE_DEV_INSPECTOR：开发模式下是否启用 inspector。
+1. 默认仅使用 `pnpm dev/build/start`。
+2. 兼容命令仅在外部历史环境确有需求时使用。
+3. 新增脚本或模块时，不再引入新的 `COZE_*` 变量依赖。
+4. 文档示例统一以标准变量命名展示。
 
-- 服务端变量
-  - NODE_ENV：development/production。
-  - HOSTNAME：服务监听 host。
-  - PORT：服务监听端口。
-  - DEPLOY_RUN_PORT：生产启动端口（可选）。
+## 4. 清理优先级
 
-- 迁移兼容变量（deprecated）
-  - COZE_PROJECT_ENV。
-  - COZE_WORKSPACE_PATH。
+### 4.1 高优先级
 
-## 4. API key 与安全要求
+1. 避免新增 Coze 术语文案。
+2. 运行逻辑优先 `NODE_ENV`，Coze 变量仅作为兼容 fallback。
 
-- 未发现当前业务代码中真实外部 LLM/MCP API key 调用。
-- 若后续接入 LLM/MCP，必须满足：
-  - 仅服务端读取密钥，禁止 NEXT_PUBLIC_* 暴露密钥。
-  - 使用 .env.local（本地）与部署平台 Secret（线上）。
-  - 提供 .env.example 仅包含键名与注释，不包含真实值。
-  - 文档中明确每个变量的用途、作用域、默认值与是否必填。
+### 4.2 中优先级
 
-## 5. MCP/Agent/Speech 现状说明
+1. 评估 `coze-coding-dev-sdk` 是否被实际调用。
+2. 评估 `react-dev-inspector` 是否仍满足团队调试需求。
 
-- Speech：本地浏览器 Web Speech API，未使用第三方语音 SDK。
-- Agent：主要为前端规则编排，不是独立 Agent runtime。
-- MCP：未发现可执行 MCP workflow 代码。
+### 4.3 低优先级
 
-结论：当前最关键的是先做工程治理与职责拆分，再按需引入真实 LLM/MCP 能力。
+1. 清理历史 `.sh` 链路（确认外部环境无依赖后执行）。
+
+## 5. 安全基线
+
+1. 若后续接入 LLM/MCP/API Key，密钥只能放服务端环境变量。
+2. `.env.example` 仅保留键名与说明，不写真实值。
+3. 所有变量必须在文档中注明：用途、作用域、是否必填、默认值。
+
+## 6. 面向接手人的结论
+
+当前仓库可按标准 Node + pnpm 工程理解和维护。Coze 相关内容属于迁移兼容层，不是主流程依赖。
