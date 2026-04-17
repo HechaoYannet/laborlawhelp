@@ -344,8 +344,6 @@ export function generateComprehensiveRiskReport(checks: RiskCheck[]): {
   summary: string
   priorityItems: RiskCheck[]
 } {
-  const levelOrder = { low: 0, medium: 1, high: 2, critical: 3 }
-
   const overallLevel =
     checks.some((c) => c.level === 'critical')
       ? 'critical'

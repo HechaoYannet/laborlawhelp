@@ -5,7 +5,6 @@
 
 import type {
   CaseProfile,
-  DialogueMessage,
   DialogueStage,
   GuidanceQuestion,
   TimelineEvent,
@@ -149,7 +148,7 @@ export function processUserInput(
   isComplete: boolean
   stageInfo: Partial<CaseProfile>
 } {
-  const { currentStage, answeredQuestions } = context
+  const { currentStage } = context
   const updatedContext = { ...context }
   let stageInfo: Partial<CaseProfile> = {}
   let response = ''
@@ -446,7 +445,7 @@ function determineDisputeTypes(info: Partial<CaseProfile>): DisputeType[] {
 // ========================================
 
 export function generateCaseSummary(profile: Partial<CaseProfile>): string {
-  const { applicant, respondent, laborRelation, wageInfo, termination, disputeTypes, evidence } = profile
+  const { laborRelation, wageInfo, termination, disputeTypes, evidence } = profile
 
   let summary = `好的，我帮您把情况整理清楚了，您可以先看一下：
 

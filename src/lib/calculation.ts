@@ -7,7 +7,6 @@ import type {
   CaseProfile,
   CalculationResult,
   CalculationItem,
-  CalculationCategory,
 } from './types'
 
 // ========================================
@@ -196,7 +195,7 @@ function calculateWageArrears(profile: CaseProfile): CalculationItem[] {
 // ========================================
 // 计算加班费
 // ========================================
-function calculateOvertimePay(profile: CaseProfile): CalculationItem[] {
+function calculateOvertimePay(): CalculationItem[] {
   const items: CalculationItem[] = []
 
   // 加班费需要考勤记录等证据，这里做基础计算
@@ -297,7 +296,7 @@ export function calculateCompensation(profile: CaseProfile): CalculationResult {
   items.push(...calculateWageArrears(profile))
 
   // 4. 加班费
-  items.push(...calculateOvertimePay(profile))
+  items.push(...calculateOvertimePay())
 
   // 5. 未休年假
   items.push(...calculateUnusedAnnualLeave(profile))

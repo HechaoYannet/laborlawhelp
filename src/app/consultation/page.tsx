@@ -5,95 +5,30 @@ import { useSpeechRecognition } from '@/hooks/use-speech-recognition'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Mic, MicOff, Send, User, Bot } from 'lucide-react'
-import type { CaseProfile, CalculationResult, Evidence } from '@/lib/types'
-
-type ConsultationInfo = {
-  entryDate?: string
-  exitDate?: string
-  wage?: number
-  contract?: 'signed' | 'unsigned' | 'lost'
-  socialSecurity?: boolean
-  terminationMethod?: 'verbal' | 'written' | 'unknown'
-  terminationReason?: string
-  evidence: string[]
-  previousAction?: 'none' | 'negotiation' | 'arbitration'
-}
-
-function toCaseProfile(info: ConsultationInfo): CaseProfile {
-  const evidenceMap: Record<string, string> = {
-    工资流水: '证明工资标准及发放情况',
-    工作群聊天: '证明劳动关系及工作内容',
-    劳动合同: '证明劳动关系和合同条款',
-    考勤记录: '证明工作时间及加班情况',
-    工牌: '证明劳动关系',
-  }
-
-  const evidenceList: Evidence[] = info.evidence.map(name => ({
-    name,
-    proofPurpose: evidenceMap[name] || '证明劳动关系及争议事实',
-    available: true,
-  }))
-
-  const terminationWayMap: Record<NonNullable<ConsultationInfo['terminationMethod']>, CaseProfile['termination']['way']> = {
-    verbal: 'oral_notice',
-    written: 'written_notice',
-    unknown: 'unknown',
-  }
-
-  const terminationReasonMap: Record<string, CaseProfile['termination']['reason']> = {
-    不胜任: 'not_suitable',
-    违纪: 'violation',
-    客观情况: 'organizational',
-  }
-
-  return {
-    applicant: { name: '' },
-    respondent: { name: '' },
-    laborRelation: {
-      startDate: info.entryDate || '',
-      endDate: info.exitDate,
-      duration: 0,
-      contractStatus: info.contract || 'unknown',
-    },
-    wageInfo: {
-      monthlySalary: info.wage || 0,
-      salaryStructure: [],
-      paymentStatus: 'normal',
-    },
-    socialSecurity: {
-      status:
-        info.socialSecurity === true
-          ? 'full'
-          : info.socialSecurity === false
-            ? 'not_paid'
-            : 'unknown',
-    },
-    termination: {
-      way: info.terminationMethod
-        ? terminationWayMap[info.terminationMethod]
-        : 'unknown',
-      reason: info.terminationReason
-        ? (terminationReasonMap[info.terminationReason] || 'unknown')
-        : 'unknown',
-    },
-    disputeTypes: ['illegal_dismissal'],
-    evidence: evidenceList,
-    disputePhase:
-      info.previousAction === 'arbitration'
-        ? 'arbitration'
-        : info.previousAction === 'negotiation'
-          ? 'negotiation'
-          : 'none',
-  }
-}
+import type { CalculationResult } from '@/lib/types'
+import {
+  extractConsultationInfo,
+  mergeConsultationInfo,
+  consultationInfoToCaseProfile,
+} from '@/features/consultation/services/consultation-profile'
+import { useCaseStore } from '@/hooks/use-case-store'
 
 export default function LaborRightsConsultation() {
-  const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([])
   const [inputValue, setInputValue] = useState('')
   const [isThinking, setIsThinking] = useState(false)
   const [displayText, setDisplayText] = useState('')
   const [pendingResponse, setPendingResponse] = useState<string | null>(null)
-  const [collectedInfo, setCollectedInfo] = useState<ConsultationInfo>({ evidence: [] })
+
+  const {
+    messages,
+    addMessage,
+    clearMessages,
+    updateExtractedInfo,
+    consultationInfo,
+    setConsultationInfo,
+    resetConsultationInfo,
+    resetExtractedInfo,
+  } = useCaseStore()
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -128,12 +63,12 @@ export default function LaborRightsConsultation() {
         setIsThinking(false)
         setDisplayText('')
         setPendingResponse(null)
-        setMessages((prev) => [...prev, { role: 'assistant', content: text }])
+        addMessage({ role: 'assistant', content: text })
       }
     }, 30)
 
     return () => clearInterval(typeInterval)
-  }, [pendingResponse])
+  }, [addMessage, pendingResponse])
 
   // 语音输入同步到输入框
   useEffect(() => {
@@ -144,69 +79,13 @@ export default function LaborRightsConsultation() {
 
   // 初始化问候语
   useEffect(() => {
-    setMessages([{ role: 'assistant', content: '请告诉我您的诉求' }])
-  }, [])
+    clearMessages()
+    resetExtractedInfo()
+    resetConsultationInfo()
+    addMessage({ role: 'assistant', content: '请告诉我您的诉求' })
+  }, [addMessage, clearMessages, resetExtractedInfo, resetConsultationInfo])
 
   // 提取信息
-  const extractInfo = (text: string): ConsultationInfo => {
-    const lower = text.toLowerCase()
-    const info: ConsultationInfo = { evidence: [] }
-
-    // 入职时间
-    const entryMatch = text.match(/(\d{4})[年\-\/]?(\d{1,2})/)
-    if (entryMatch) {
-      info.entryDate = `${entryMatch[1]}-${entryMatch[2].padStart(2, '0')}-01`
-    }
-
-    // 离职时间
-    const exitMatch = text.match(/(20\d{2})[年\-\/](\d{1,2})[月\-\/]?(\d{1,2})?[日]?/)
-    if (exitMatch && /辞|不用来|开|走/.test(lower)) {
-      info.exitDate = `${exitMatch[1]}-${exitMatch[2].padStart(2, '0')}-${(exitMatch[3] || '01').padStart(2, '0')}`
-    }
-
-    // 工资
-    const wageMatch = text.match(/(\d+)(?:千|万|元)/)
-    if (wageMatch) {
-      let wage = parseInt(wageMatch[1])
-      if (/万/.test(text)) wage *= 10000
-      else if (/千/.test(text)) wage *= 1000
-      else if (wage < 100) wage *= 1000
-      info.wage = wage
-    }
-
-    // 合同
-    if (/没签/.test(lower)) info.contract = 'unsigned'
-    else if (/找不.*到|丢了/.test(lower)) info.contract = 'lost'
-    else if (/签.*合同/.test(lower)) info.contract = 'signed'
-
-    // 社保
-    if (/没交/.test(lower)) info.socialSecurity = false
-    else if (/交了/.test(lower) || /应该/.test(lower)) info.socialSecurity = true
-
-    // 辞退方式
-    if (/口头/.test(lower)) info.terminationMethod = 'verbal'
-    else if (/书面/.test(lower)) info.terminationMethod = 'written'
-
-    // 辞退理由
-    if (/不合适/.test(lower)) info.terminationReason = '不胜任'
-    else if (/违反/.test(lower)) info.terminationReason = '违纪'
-    else if (/经营|效益/.test(lower)) info.terminationReason = '客观情况'
-
-    // 证据
-    if (/流水/.test(lower)) info.evidence.push('工资流水')
-    if (/群.*聊|工作.*群/.test(lower)) info.evidence.push('工作群聊天')
-    if (/合同/.test(lower) && !/没/.test(lower)) info.evidence.push('劳动合同')
-    if (/考勤/.test(lower)) info.evidence.push('考勤记录')
-    if (/工牌|工作证/.test(lower)) info.evidence.push('工牌')
-
-    // 维权进度
-    if (/仲裁/.test(lower)) info.previousAction = 'arbitration'
-    else if (/协商/.test(lower)) info.previousAction = 'negotiation'
-    else if (/没找过|不知道|没.*去过/.test(lower)) info.previousAction = 'none'
-
-    return info
-  }
-
   // 生成回复
   const getAssistantResponse = async (userMessage: string): Promise<string> => {
     // 合并历史消息分析
@@ -214,16 +93,12 @@ export default function LaborRightsConsultation() {
     const lower = allText.toLowerCase()
     
     // 提取信息
-    const newInfo = extractInfo(userMessage)
+    const newInfo = extractConsultationInfo(userMessage)
     
     // 合并到已收集信息
-    setCollectedInfo(prev => ({
-      ...prev,
-      ...newInfo,
-      evidence: [...new Set([...prev.evidence, ...newInfo.evidence])]
-    }))
-
-    const info = { ...collectedInfo, ...newInfo, evidence: [...new Set([...collectedInfo.evidence, ...newInfo.evidence])] }
+    const info = mergeConsultationInfo(consultationInfo, newInfo)
+    setConsultationInfo(info)
+    updateExtractedInfo(consultationInfoToCaseProfile(info))
 
     // 检测是否在描述劳动纠纷
     const isDescribingDispute = /辞|开|不用来|被辞|被开|辞退|裁员|开除/.test(lower)
@@ -238,7 +113,7 @@ export default function LaborRightsConsultation() {
     if (isAskingCompensation || isAskingProcess) {
       if (info.entryDate || info.wage) {
         const { calculateCompensation } = await import('@/lib/calculation')
-        const calculation: CalculationResult = calculateCompensation(toCaseProfile(info))
+        const calculation: CalculationResult = calculateCompensation(consultationInfoToCaseProfile(info))
         
         return `根据您说的情况，我帮您按西安本地口径做初步测算：
 
@@ -266,8 +141,8 @@ ${isAskingProcess ? `
     // 如果用户在问律师
     if (isAskingLawyer) {
       const { evaluateCaseComplexity, recommendLawyers } = await import('@/lib/case-triage')
-      const triageResult = evaluateCaseComplexity(toCaseProfile(info))
-      recommendLawyers(toCaseProfile(info))
+      const triageResult = evaluateCaseComplexity(consultationInfoToCaseProfile(info))
+      recommendLawyers(consultationInfoToCaseProfile(info))
 
       let suggestion = ''
       if (triageResult.complexity === 'simple') {
@@ -303,8 +178,8 @@ ${isAskingProcess ? `
           import('@/lib/dialogue-flow')
         ]).then(m => ({ calculateCompensation: m[0].calculateCompensation, generateCaseSummary: m[1].generateCaseSummary }))
 
-        generateCaseSummary(toCaseProfile(info))
-        const calc: CalculationResult = calculateCompensation(toCaseProfile(info))
+        generateCaseSummary(consultationInfoToCaseProfile(info))
+        const calc: CalculationResult = calculateCompensation(consultationInfoToCaseProfile(info))
 
         return `${greeting}
 
@@ -362,8 +237,8 @@ ${info.evidence.length > 0 ? `• 您有的证据：${info.evidence.join('、')}
 
     // 如果信息足够，生成总结
     if (info.entryDate && info.wage && info.terminationMethod && (info.evidence.length > 0 || info.previousAction)) {
-      const summary = generateCaseSummary(toCaseProfile(info))
-      const calc: CalculationResult = calculateCompensation(toCaseProfile(info))
+      const summary = generateCaseSummary(consultationInfoToCaseProfile(info))
+      const calc: CalculationResult = calculateCompensation(consultationInfoToCaseProfile(info))
 
       return `${confirmText}
 
@@ -392,7 +267,7 @@ ${summary}
     const content = inputValue.trim()
     if (!content || isThinking) return
 
-    setMessages((prev) => [...prev, { role: 'user', content }])
+    addMessage({ role: 'user', content })
     setInputValue('')
     setIsThinking(true)
 

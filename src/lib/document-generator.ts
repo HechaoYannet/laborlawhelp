@@ -7,7 +7,6 @@ import type {
   DocumentType,
   DocumentContent,
   CalculationResult,
-  TimelineEvent,
 } from './types'
 
 // ========================================
@@ -18,7 +17,6 @@ export function generateDocument(
   type: DocumentType,
   profile: CaseProfile,
   calculation?: CalculationResult,
-  timeline?: TimelineEvent[]
 ): DocumentContent {
   switch (type) {
     case 'arbitration_application':
@@ -28,7 +26,7 @@ export function generateDocument(
     case 'calculation_statement':
       return generateCalculationStatement(profile, calculation)
     case 'action_checklist':
-      return generateActionChecklist(profile, timeline)
+      return generateActionChecklist(profile)
     default:
       throw new Error('Unknown document type: ' + type)
   }
@@ -312,8 +310,7 @@ function generateCalculationStatement(
 // 4. 维权行动清单
 // ========================================
 function generateActionChecklist(
-  profile: CaseProfile,
-  timeline?: TimelineEvent[]
+  profile: CaseProfile
 ): DocumentContent {
   const { applicant, respondent, laborRelation, termination } = profile
 

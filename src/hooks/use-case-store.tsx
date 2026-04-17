@@ -12,6 +12,10 @@ import type {
   DialogueStage,
   TimelineEvent,
 } from '@/lib/types'
+import {
+  createEmptyConsultationInfo,
+  type ConsultationInfo,
+} from '@/features/consultation/services/consultation-profile'
 
 // 初始空案情
 const initialCaseProfile: CaseProfile = {
@@ -47,6 +51,7 @@ interface CaseStoreContextType {
   messages: DialogueMessage[]
   currentStage: DialogueStage
   extractedInfo: Partial<CaseProfile>
+  consultationInfo: ConsultationInfo
   
   // Actions
   updateCaseProfile: (updates: Partial<CaseProfile>) => void
@@ -70,6 +75,8 @@ interface CaseStoreContextType {
   clearMessages: () => void
   setCurrentStage: (stage: DialogueStage) => void
   updateExtractedInfo: (info: Partial<CaseProfile>) => void
+  setConsultationInfo: (info: ConsultationInfo) => void
+  resetConsultationInfo: () => void
   resetExtractedInfo: () => void
   resetAll: () => void
 }
@@ -86,6 +93,7 @@ export function CaseStoreProvider({ children }: { children: ReactNode }) {
   const [messages, setMessages] = useState<DialogueMessage[]>([])
   const [currentStage, setStage] = useState<DialogueStage>('initial')
   const [extractedInfo, setExtracted] = useState<Partial<CaseProfile>>({})
+  const [consultationInfo, setConsultationInfoState] = useState<ConsultationInfo>(createEmptyConsultationInfo())
 
   const updateCaseProfile = useCallback((updates: Partial<CaseProfile>) => {
     setCaseProfile(prev => ({ ...prev, ...updates }))
@@ -192,6 +200,14 @@ export function CaseStoreProvider({ children }: { children: ReactNode }) {
     setExtracted(prev => ({ ...prev, ...info }))
   }, [])
 
+  const setConsultationInfo = useCallback((info: ConsultationInfo) => {
+    setConsultationInfoState(info)
+  }, [])
+
+  const resetConsultationInfo = useCallback(() => {
+    setConsultationInfoState(createEmptyConsultationInfo())
+  }, [])
+
   const resetExtractedInfo = useCallback(() => {
     setExtracted({})
   }, [])
@@ -206,6 +222,7 @@ export function CaseStoreProvider({ children }: { children: ReactNode }) {
     setMessages([])
     setStage('initial')
     setExtracted({})
+    setConsultationInfoState(createEmptyConsultationInfo())
   }, [])
 
   const value: CaseStoreContextType = {
@@ -218,6 +235,7 @@ export function CaseStoreProvider({ children }: { children: ReactNode }) {
     messages,
     currentStage,
     extractedInfo,
+    consultationInfo,
     updateCaseProfile,
     updateApplicant,
     updateRespondent,
@@ -239,6 +257,8 @@ export function CaseStoreProvider({ children }: { children: ReactNode }) {
     clearMessages,
     setCurrentStage,
     updateExtractedInfo,
+    setConsultationInfo,
+    resetConsultationInfo,
     resetExtractedInfo,
     resetAll,
   }
