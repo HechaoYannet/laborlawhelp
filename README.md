@@ -4,10 +4,21 @@
 
 ## 快速开始
 
+### 环境要求
+
+- Node.js 20 LTS（见 `.nvmrc`）
+- pnpm 9+
+
+### 安装依赖
+
+```bash
+pnpm install
+```
+
 ### 启动开发服务器
 
 ```bash
-coze dev
+pnpm dev
 ```
 
 启动后，在浏览器中打开 [http://localhost:5000](http://localhost:5000) 查看应用。
@@ -17,13 +28,21 @@ coze dev
 ### 构建生产版本
 
 ```bash
-coze build
+pnpm build
 ```
 
 ### 启动生产服务器
 
 ```bash
-coze start
+pnpm start
+```
+
+### Coze 兼容命令（可选）
+
+```bash
+pnpm dev:coze
+pnpm build:coze
+pnpm start:coze
 ```
 
 ## 项目结构
@@ -44,10 +63,13 @@ src/
 │   └── utils.ts            # cn() 等工具函数
 └── hooks/                   # 自定义 React Hooks（可选）
 
-server/
-├── index.ts                 # 自定义服务器入口
-├── tsconfig.json           # Server TypeScript 配置
-└── dist/                    # 编译输出目录（自动生成）
+src/
+└── server.ts                # 自定义服务器入口
+
+scripts/
+├── dev.mjs                  # 跨平台开发启动脚本
+├── build.mjs                # 跨平台构建脚本
+└── start.mjs                # 跨平台生产启动脚本
 ```
 
 ## 核心开发规范

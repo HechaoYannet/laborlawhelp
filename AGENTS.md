@@ -127,6 +127,14 @@ pnpm build
 pnpm start
 ```
 
+### AI/跨平台开发约束
+
+- 默认使用 `pnpm`，禁止使用 `npm`/`yarn`
+- 本地标准 Node 版本为 20 LTS（见仓库 `.nvmrc`）
+- Windows 与 WSL 均使用以下命令：`pnpm dev` / `pnpm build` / `pnpm start`
+- Coze 环境兼容命令：`pnpm dev:coze` / `pnpm build:coze` / `pnpm start:coze`
+- 自定义服务器入口为 `src/server.ts`，不要改为直接 `next dev` 作为默认入口
+
 ---
 
 ## 注意事项
