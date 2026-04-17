@@ -28,6 +28,14 @@ const initialCaseProfile: CaseProfile = {
 
 const initialTimeline: FactTimeline = { events: [], currentPhase: 'none' }
 
+function createMessageId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `msg_${crypto.randomUUID()}`
+  }
+
+  return `msg_${Date.now()}`
+}
+
 interface CaseStoreContextType {
   // State
   caseProfile: CaseProfile
@@ -166,7 +174,7 @@ export function CaseStoreProvider({ children }: { children: ReactNode }) {
       ...prev,
       {
         ...message,
-        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        id: createMessageId(),
         timestamp: Date.now(),
       },
     ])

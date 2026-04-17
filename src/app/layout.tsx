@@ -5,7 +5,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: {
-    default: '劳动维权助手 | 扣子编程',
+    default: '劳动维权助手',
     template: '%s | 劳动维权助手',
   },
   description:
@@ -22,16 +22,16 @@ export const metadata: Metadata = {
     '社保',
   ],
   authors: [{ name: '劳动维权助手', url: process.env.NEXT_PUBLIC_APP_URL || 'https://example.com' }],
-  generator: 'Coze Code',
+  generator: 'LaborLawHelp',
   // icons: {
   //   icon: '',
   // },
   openGraph: {
-    title: '扣子编程 | 你的 AI 工程师已就位',
+    title: '劳动维权助手',
     description:
-      '我正在使用扣子编程 Vibe Coding，让创意瞬间上线。告别拖拽，拥抱心流。',
-    url: 'https://code.coze.cn',
-    siteName: '扣子编程',
+      '为劳动者提供专业的劳动维权指导，包括案情分析、赔偿计算、文书生成与律师推荐。',
+    url: process.env.NEXT_PUBLIC_APP_URL || 'https://example.com',
+    siteName: '劳动维权助手',
     locale: 'zh_CN',
     type: 'website',
     // images: [
@@ -61,13 +61,14 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const isDev = process.env.COZE_PROJECT_ENV === 'DEV';
+  const isDev = process.env.NODE_ENV === 'development';
+  const enableInspector = process.env.NEXT_PUBLIC_ENABLE_DEV_INSPECTOR === 'true';
 
   return (
-    <html lang="en">
+    <html lang="zh-CN">
       <body className={`antialiased`}>
         <CaseStoreProvider>
-          {isDev && <Inspector />}
+          {isDev && enableInspector && <Inspector />}
           {children}
         </CaseStoreProvider>
       </body>

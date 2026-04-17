@@ -135,6 +135,12 @@ pnpm start
 - Coze 环境兼容命令：`pnpm dev:coze` / `pnpm build:coze` / `pnpm start:coze`
 - 自定义服务器入口为 `src/server.ts`，不要改为直接 `next dev` 作为默认入口
 
+### 架构与遗产治理文档
+
+- 模块与流程总览：`docs/architecture.md`
+- Coze 遗产与 env 规范：`docs/coze-legacy-and-env.md`
+- 环境变量样例：`.env.example`
+
 ---
 
 ## 注意事项

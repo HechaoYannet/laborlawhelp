@@ -150,7 +150,7 @@ export function processUserInput(
   stageInfo: Partial<CaseProfile>
 } {
   const { currentStage, answeredQuestions } = context
-  let updatedContext = { ...context }
+  const updatedContext = { ...context }
   let stageInfo: Partial<CaseProfile> = {}
   let response = ''
   let isComplete = false

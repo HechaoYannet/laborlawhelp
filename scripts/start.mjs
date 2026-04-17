@@ -12,6 +12,7 @@ const child = spawn(`"${process.execPath}" dist/server.js`, {
   cwd: workspacePath,
   env: {
     ...process.env,
+    NODE_ENV: process.env.NODE_ENV || 'production',
     COZE_PROJECT_ENV: process.env.COZE_PROJECT_ENV || 'PROD',
     PORT: port,
   },

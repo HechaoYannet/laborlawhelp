@@ -15,6 +15,20 @@
 pnpm install
 ```
 
+### 环境变量
+
+```bash
+cp .env.example .env.local
+```
+
+关键变量：
+
+- `NEXT_PUBLIC_APP_URL`：站点公开地址
+- `NEXT_PUBLIC_ENABLE_DEV_INSPECTOR`：开发模式是否显示 inspector
+- `HOSTNAME`/`PORT`：服务监听地址与端口
+
+兼容变量（迁移期）：`COZE_PROJECT_ENV`、`COZE_WORKSPACE_PATH`
+
 ### 启动开发服务器
 
 ```bash
@@ -44,6 +58,11 @@ pnpm dev:coze
 pnpm build:coze
 pnpm start:coze
 ```
+
+## 架构与遗产文档
+
+- `docs/architecture.md`：模块职责、工作流、调用关系
+- `docs/coze-legacy-and-env.md`：Coze 遗产清单与环境变量治理
 
 ## 项目结构
 

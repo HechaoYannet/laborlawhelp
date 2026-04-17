@@ -5,6 +5,87 @@ import { useSpeechRecognition } from '@/hooks/use-speech-recognition'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Mic, MicOff, Send, User, Bot } from 'lucide-react'
+import type { CaseProfile, CalculationResult, Evidence } from '@/lib/types'
+
+type ConsultationInfo = {
+  entryDate?: string
+  exitDate?: string
+  wage?: number
+  contract?: 'signed' | 'unsigned' | 'lost'
+  socialSecurity?: boolean
+  terminationMethod?: 'verbal' | 'written' | 'unknown'
+  terminationReason?: string
+  evidence: string[]
+  previousAction?: 'none' | 'negotiation' | 'arbitration'
+}
+
+function toCaseProfile(info: ConsultationInfo): CaseProfile {
+  const evidenceMap: Record<string, string> = {
+    工资流水: '证明工资标准及发放情况',
+    工作群聊天: '证明劳动关系及工作内容',
+    劳动合同: '证明劳动关系和合同条款',
+    考勤记录: '证明工作时间及加班情况',
+    工牌: '证明劳动关系',
+  }
+
+  const evidenceList: Evidence[] = info.evidence.map(name => ({
+    name,
+    proofPurpose: evidenceMap[name] || '证明劳动关系及争议事实',
+    available: true,
+  }))
+
+  const terminationWayMap: Record<NonNullable<ConsultationInfo['terminationMethod']>, CaseProfile['termination']['way']> = {
+    verbal: 'oral_notice',
+    written: 'written_notice',
+    unknown: 'unknown',
+  }
+
+  const terminationReasonMap: Record<string, CaseProfile['termination']['reason']> = {
+    不胜任: 'not_suitable',
+    违纪: 'violation',
+    客观情况: 'organizational',
+  }
+
+  return {
+    applicant: { name: '' },
+    respondent: { name: '' },
+    laborRelation: {
+      startDate: info.entryDate || '',
+      endDate: info.exitDate,
+      duration: 0,
+      contractStatus: info.contract || 'unknown',
+    },
+    wageInfo: {
+      monthlySalary: info.wage || 0,
+      salaryStructure: [],
+      paymentStatus: 'normal',
+    },
+    socialSecurity: {
+      status:
+        info.socialSecurity === true
+          ? 'full'
+          : info.socialSecurity === false
+            ? 'not_paid'
+            : 'unknown',
+    },
+    termination: {
+      way: info.terminationMethod
+        ? terminationWayMap[info.terminationMethod]
+        : 'unknown',
+      reason: info.terminationReason
+        ? (terminationReasonMap[info.terminationReason] || 'unknown')
+        : 'unknown',
+    },
+    disputeTypes: ['illegal_dismissal'],
+    evidence: evidenceList,
+    disputePhase:
+      info.previousAction === 'arbitration'
+        ? 'arbitration'
+        : info.previousAction === 'negotiation'
+          ? 'negotiation'
+          : 'none',
+  }
+}
 
 export default function LaborRightsConsultation() {
   const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([])
@@ -12,17 +93,7 @@ export default function LaborRightsConsultation() {
   const [isThinking, setIsThinking] = useState(false)
   const [displayText, setDisplayText] = useState('')
   const [pendingResponse, setPendingResponse] = useState<string | null>(null)
-  const [collectedInfo, setCollectedInfo] = useState<{
-    entryDate?: string
-    exitDate?: string
-    wage?: number
-    contract?: 'signed' | 'unsigned' | 'lost'
-    socialSecurity?: boolean
-    terminationMethod?: 'verbal' | 'written' | 'unknown'
-    terminationReason?: string
-    evidence: string[]
-    previousAction?: 'none' | 'negotiation' | 'arbitration'
-  }>({ evidence: [] })
+  const [collectedInfo, setCollectedInfo] = useState<ConsultationInfo>({ evidence: [] })
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -77,9 +148,9 @@ export default function LaborRightsConsultation() {
   }, [])
 
   // 提取信息
-  const extractInfo = (text: string) => {
+  const extractInfo = (text: string): ConsultationInfo => {
     const lower = text.toLowerCase()
-    const info: any = { evidence: [] }
+    const info: ConsultationInfo = { evidence: [] }
 
     // 入职时间
     const entryMatch = text.match(/(\d{4})[年\-\/]?(\d{1,2})/)
@@ -167,12 +238,12 @@ export default function LaborRightsConsultation() {
     if (isAskingCompensation || isAskingProcess) {
       if (info.entryDate || info.wage) {
         const { calculateCompensation } = await import('@/lib/calculation')
-        const calculation = calculateCompensation(info as any)
+        const calculation: CalculationResult = calculateCompensation(toCaseProfile(info))
         
         return `根据您说的情况，我帮您按西安本地口径做初步测算：
 
 **赔偿项目：**
-${calculation.items.filter((i: any) => i.amount > 0).map((i: any) => `• ${i.name}：约 ${i.amount.toLocaleString()} 元`).join('\n')}
+${calculation.items.filter((i) => i.amount > 0).map((i) => `• ${i.name}：约 ${i.amount.toLocaleString()} 元`).join('\n')}
 
 **合计：约 ${calculation.totalAmount.toLocaleString()} 元**
 
@@ -195,8 +266,8 @@ ${isAskingProcess ? `
     // 如果用户在问律师
     if (isAskingLawyer) {
       const { evaluateCaseComplexity, recommendLawyers } = await import('@/lib/case-triage')
-      const triageResult = evaluateCaseComplexity(info as any)
-      const lawyers = recommendLawyers(info as any)
+      const triageResult = evaluateCaseComplexity(toCaseProfile(info))
+      recommendLawyers(toCaseProfile(info))
 
       let suggestion = ''
       if (triageResult.complexity === 'simple') {
@@ -232,8 +303,8 @@ ${isAskingProcess ? `
           import('@/lib/dialogue-flow')
         ]).then(m => ({ calculateCompensation: m[0].calculateCompensation, generateCaseSummary: m[1].generateCaseSummary }))
 
-        const summary = generateCaseSummary(info)
-        const calc = calculateCompensation(info as any)
+        generateCaseSummary(toCaseProfile(info))
+        const calc: CalculationResult = calculateCompensation(toCaseProfile(info))
 
         return `${greeting}
 
@@ -251,7 +322,7 @@ ${info.evidence.length > 0 ? `• 您有的证据：${info.evidence.join('、')}
       }
 
       // 追问缺失信息
-      let questions = []
+      const questions: string[] = []
       if (!info.entryDate) questions.push('您是什么时候入职的？')
       if (!info.wage) questions.push('您每个月到手工资大概多少？')
       if (!info.terminationMethod) questions.push('他们是口头还是书面通知您的？')
@@ -270,7 +341,7 @@ ${info.evidence.length > 0 ? `• 您有的证据：${info.evidence.join('、')}
     ]).then(m => ({ calculateCompensation: m[0].calculateCompensation, generateCaseSummary: m[1].generateCaseSummary }))
 
     // 确认本次提供的信息
-    let confirmation = []
+    const confirmation: string[] = []
     if (newInfo.entryDate) confirmation.push(`入职时间${newInfo.entryDate}`)
     if (newInfo.wage) confirmation.push(`工资${newInfo.wage}元`)
     if (newInfo.terminationMethod) confirmation.push(`辞退方式${newInfo.terminationMethod === 'verbal' ? '口头' : '书面'}`)
@@ -291,8 +362,8 @@ ${info.evidence.length > 0 ? `• 您有的证据：${info.evidence.join('、')}
 
     // 如果信息足够，生成总结
     if (info.entryDate && info.wage && info.terminationMethod && (info.evidence.length > 0 || info.previousAction)) {
-      const summary = generateCaseSummary(info)
-      const calc = calculateCompensation(info as any)
+      const summary = generateCaseSummary(toCaseProfile(info))
+      const calc: CalculationResult = calculateCompensation(toCaseProfile(info))
 
       return `${confirmText}
 
@@ -439,9 +510,8 @@ ${summary}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="输入您的问题，或点击麦克风语音输入..."
-                className="w-full resize-none rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                className="w-full resize-none rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all min-h-[48px] max-h-[120px]"
                 rows={1}
-                style={{ minHeight: '48px', maxHeight: '120px' }}
               />
               {isListening && (
                 <div className="absolute right-3 top-1/2 -translate-y-1/2">
