@@ -1,5 +1,1 @@
-import { redirect } from 'next/navigation'
-
-export default function HomePage() {
-  redirect('/consultation')
-}
+export { default } from './(home)/page'

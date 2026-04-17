@@ -34,7 +34,7 @@ export default function HomePage() {
             <Link href="/" className="text-sm font-medium text-slate-600 hover:text-slate-900">
               首页
             </Link>
-            <Link href="/" className="text-sm font-medium text-blue-600">
+            <Link href="/consultation" className="text-sm font-medium text-blue-600">
               劳动者维权
             </Link>
             <Link href="/hr-risk" className="text-sm font-medium text-slate-600 hover:text-slate-900">
@@ -64,7 +64,7 @@ export default function HomePage() {
             测算赔偿、准备材料，让维权之路不再迷茫。
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/">
+            <Link href="/consultation">
               <Button size="lg" className="w-full sm:w-auto bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 shadow-lg shadow-blue-500/25">
                 <Scale className="w-5 h-5 mr-2" />
                 我要维权
@@ -128,7 +128,7 @@ export default function HomePage() {
                   <p className="text-sm text-slate-500">精准匹配，专业对接</p>
                 </div>
               </div>
-              <Link href="/">
+              <Link href="/consultation">
                 <Button className="w-full mt-4 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700">
                   开始维权咨询
                   <ChevronRight className="w-4 h-4 ml-2" />
