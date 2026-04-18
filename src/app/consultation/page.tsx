@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useSpeechRecognition } from '@/hooks/use-speech-recognition'
 import { Button } from '@/components/ui/button'
 import { Mic, MicOff, Send, User, Bot, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
@@ -62,7 +62,7 @@ export default function LaborRightsConsultation() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, displayText])
 
-  const resizeTextarea = (element?: HTMLTextAreaElement) => {
+  const resizeTextarea = useCallback((element?: HTMLTextAreaElement) => {
     const target = element ?? inputRef.current
     if (!target) return
 
@@ -71,12 +71,12 @@ export default function LaborRightsConsultation() {
     const nextHeight = Math.min(target.scrollHeight, maxHeight)
     target.style.height = `${nextHeight}px`
     target.style.overflowY = target.scrollHeight > maxHeight ? 'auto' : 'hidden'
-  }
+  }, [isCompactLandscape, isWideScreen])
 
   // 输入框自动高度（达到上限后显示滚动条）
   useEffect(() => {
     resizeTextarea()
-  }, [inputValue, isWideScreen, isCompactLandscape])
+  }, [inputValue, resizeTextarea])
 
   // 大屏与横屏状态
   useEffect(() => {
@@ -298,12 +298,21 @@ export default function LaborRightsConsultation() {
       }
     }
 
-    // 如果用户在问赔偿或流程 - 直接生成计算
-    if (isAskingCompensation || isAskingProcess) {
-      if (info.entryDate || info.wage) {
+    // 如果用户在问赔偿 - 信息足够时再生成测算
+    if (isAskingCompensation) {
+      const missingForCompensation: string[] = []
+      if (!info.entryDate) missingForCompensation.push('入职时间')
+      if (!info.wage) missingForCompensation.push('月工资')
+      if (!info.terminationMethod) missingForCompensation.push('辞退方式')
+
+      if (missingForCompensation.length > 0) {
+        return `要给您做相对靠谱的赔偿测算，还差这些关键信息：${missingForCompensation.join('、')}。您补充后我再继续算。`
+      }
+
+      if (info.entryDate && info.wage && info.terminationMethod) {
         const { calculateCompensation } = await import('@/lib/calculation')
         const calculation: CalculationResult = calculateCompensation(consultationInfoToCaseProfile(info))
-        
+
         return `根据您说的情况，我帮您按西安本地口径做初步测算：
 
 **赔偿项目：**
@@ -325,6 +334,19 @@ ${isAskingProcess ? `
 
 请问还有什么要了解的吗？` : ''}`
       }
+    }
+
+    if (isAskingProcess) {
+      const processHints: string[] = []
+      if (!info.entryDate) processHints.push('入职时间')
+      if (info.evidence.length === 0) processHints.push('现有证据')
+      if (!info.previousAction) processHints.push('目前维权进度')
+
+      return `维权基本流程一般是：先整理证据，再准备申请材料，然后去公司注册地劳动仲裁委提交申请，等受理和开庭通知。\n\n${
+        processHints.length > 0
+          ? `为了把流程建议说得更贴近您的情况，建议再补充：${processHints.join('、')}。`
+          : '您现在已经可以开始按这个顺序准备材料了。'
+      }`
     }
 
     // 如果用户在问律师

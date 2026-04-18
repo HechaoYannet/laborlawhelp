@@ -9,55 +9,89 @@ export type ConsultationInfo = {
   terminationMethod?: 'verbal' | 'written' | 'unknown'
   terminationReason?: string
   evidence: string[]
+  disputeTypes: CaseProfile['disputeTypes']
   previousAction?: 'none' | 'negotiation' | 'arbitration'
 }
 
 export function createEmptyConsultationInfo(): ConsultationInfo {
-  return { evidence: [] }
+  return { evidence: [], disputeTypes: [] }
 }
 
 export function extractConsultationInfo(text: string): ConsultationInfo {
   const lower = text.toLowerCase()
   const info: ConsultationInfo = createEmptyConsultationInfo()
+  const disputeTypeSet = new Set<CaseProfile['disputeTypes'][number]>()
 
-  const entryMatch = text.match(/(\d{4})[年\-\/]?(\d{1,2})/)
+  const entryMatch =
+    text.match(/(?:于|在)?\s*(20\d{2})\s*年\s*(\d{1,2})\s*月(?:\s*(\d{1,2})\s*日?)?\s*(?:入职|到岗|上班|开始工作)/) ||
+    text.match(/(?:于|在)?\s*(20\d{2})\s*[-/.]\s*(\d{1,2})(?:\s*[-/.]\s*(\d{1,2}))?\s*(?:入职|到岗|上班|开始工作)/) ||
+    text.match(/(?:入职|到岗|上班|开始工作)[^\d]{0,8}(20\d{2})\s*年\s*(\d{1,2})\s*月(?:\s*(\d{1,2})\s*日?)?/) ||
+    text.match(/(?:入职|到岗|上班|开始工作)[^\d]{0,8}(20\d{2})\s*[-/.]\s*(\d{1,2})(?:\s*[-/.]\s*(\d{1,2}))?/)
   if (entryMatch) {
-    info.entryDate = `${entryMatch[1]}-${entryMatch[2].padStart(2, '0')}-01`
+    info.entryDate = formatDate(entryMatch[1], entryMatch[2], entryMatch[3])
   }
 
-  const exitMatch = text.match(/(20\d{2})[年\-\/](\d{1,2})[月\-\/](\d{1,2})?[日]?/)
-  if (exitMatch && /辞|不用来|开|走/.test(lower)) {
-    info.exitDate = `${exitMatch[1]}-${exitMatch[2].padStart(2, '0')}-${(exitMatch[3] || '01').padStart(2, '0')}`
+  const hasTerminationSignal = /辞退|被辞|被开|开除|裁员|解除|不用来|不让来|离职|走人/.test(lower)
+  const exitMatch =
+    text.match(/(?:于|在)?\s*(20\d{2})\s*年\s*(\d{1,2})\s*月(?:\s*(\d{1,2})\s*日?)?\s*(?:被辞退|被开除|被裁员|离职|解除劳动关系)/) ||
+    text.match(/(?:于|在)?\s*(20\d{2})\s*[-/.]\s*(\d{1,2})(?:\s*[-/.]\s*(\d{1,2}))?\s*(?:被辞退|被开除|被裁员|离职|解除劳动关系)/) ||
+    text.match(/(?:被辞退|被开除|被裁员|离职|解除劳动关系)[^\d]{0,8}(20\d{2})\s*年\s*(\d{1,2})\s*月(?:\s*(\d{1,2})\s*日?)?/) ||
+    text.match(/(?:被辞退|被开除|被裁员|离职|解除劳动关系)[^\d]{0,8}(20\d{2})\s*[-/.]\s*(\d{1,2})(?:\s*[-/.]\s*(\d{1,2}))?/)
+  if (hasTerminationSignal && /今天/.test(lower)) {
+    info.exitDate = new Date().toISOString().split('T')[0]
+  } else if (exitMatch && hasTerminationSignal) {
+    info.exitDate = formatDate(exitMatch[1], exitMatch[2], exitMatch[3])
   }
 
-  const wageMatch = text.match(/(\d+)(?:千|万|元)/)
+  const wageMatch =
+    text.match(/(?:月工资|工资|月薪|到手|底薪|税前|税后)[^\d]{0,6}(\d+(?:\.\d+)?)\s*(万|千|k|K|元|块)?/) ||
+    text.match(/(\d+(?:\.\d+)?)\s*(万|千|k|K|元|块)\s*(?:每月|一个月|月工资|工资|月薪)/)
   if (wageMatch) {
-    let wage = parseInt(wageMatch[1], 10)
-    if (/万/.test(text)) wage *= 10000
-    else if (/千/.test(text)) wage *= 1000
-    else if (wage < 100) wage *= 1000
-    info.wage = wage
+    info.wage = normalizeAmount(wageMatch[1], wageMatch[2])
   }
 
-  if (/没签/.test(lower)) info.contract = 'unsigned'
+  if (/没签|未签/.test(lower)) info.contract = 'unsigned'
   else if (/找不.*到|丢了/.test(lower)) info.contract = 'lost'
   else if (/签.*合同/.test(lower)) info.contract = 'signed'
 
-  if (/没交/.test(lower)) info.socialSecurity = false
-  else if (/交了/.test(lower) || /应该/.test(lower)) info.socialSecurity = true
+  if (/社保.*(?:没交|未交|断缴|少缴)|没交社保|未缴社保/.test(lower)) {
+    info.socialSecurity = false
+  } else if (/社保.*(?:交了|已交|正常缴纳)|有交社保/.test(lower)) {
+    info.socialSecurity = true
+  }
 
   if (/口头/.test(lower)) info.terminationMethod = 'verbal'
-  else if (/书面/.test(lower)) info.terminationMethod = 'written'
+  else if (/书面|通知书|解除函/.test(lower)) info.terminationMethod = 'written'
 
-  if (/不合适/.test(lower)) info.terminationReason = '不胜任'
+  if (/不合适|不适合/.test(lower)) info.terminationReason = '不胜任'
   else if (/违反/.test(lower)) info.terminationReason = '违纪'
-  else if (/经营|效益/.test(lower)) info.terminationReason = '客观情况'
+  else if (/经营|效益|裁员|优化|调整/.test(lower)) info.terminationReason = '客观情况'
 
   if (/流水/.test(lower)) info.evidence.push('工资流水')
-  if (/群.*聊|工作.*群/.test(lower)) info.evidence.push('工作群聊天')
+  if (/聊天记录|群.*聊|工作.*群|微信记录/.test(lower)) info.evidence.push('工作群聊天')
   if (/合同/.test(lower) && !/没/.test(lower)) info.evidence.push('劳动合同')
   if (/考勤/.test(lower)) info.evidence.push('考勤记录')
   if (/工牌|工作证/.test(lower)) info.evidence.push('工牌')
+
+  if (hasTerminationSignal || info.terminationMethod || info.terminationReason || info.exitDate) {
+    disputeTypeSet.add('illegal_dismissal')
+  }
+  if (info.contract === 'unsigned') {
+    disputeTypeSet.add('contract_not_signed')
+  }
+  if (/拖欠工资|扣工资|欠薪|没发工资|工资没发|工资拖着/.test(lower)) {
+    disputeTypeSet.add('wage_arrears')
+  }
+  if (/加班/.test(lower)) {
+    disputeTypeSet.add('unpaid_overtime')
+  }
+  if (info.socialSecurity === false) {
+    disputeTypeSet.add('social_security_arrears')
+  }
+  if (/年假|调休|未休假|未休年假/.test(lower)) {
+    disputeTypeSet.add('leave_arrears')
+  }
+  info.disputeTypes = Array.from(disputeTypeSet)
 
   if (/仲裁/.test(lower)) info.previousAction = 'arbitration'
   else if (/协商/.test(lower)) info.previousAction = 'negotiation'
@@ -74,6 +108,7 @@ export function mergeConsultationInfo(
     ...current,
     ...nextInfo,
     evidence: [...new Set([...current.evidence, ...nextInfo.evidence])],
+    disputeTypes: [...new Set([...current.disputeTypes, ...nextInfo.disputeTypes])],
   }
 }
 
@@ -103,6 +138,13 @@ export function consultationInfoToCaseProfile(info: ConsultationInfo): CaseProfi
     违纪: 'violation',
     客观情况: 'organizational',
   }
+
+  const disputeTypes =
+    info.disputeTypes.length > 0
+      ? info.disputeTypes
+      : info.terminationMethod || info.terminationReason || info.exitDate
+        ? (['illegal_dismissal'] as CaseProfile['disputeTypes'])
+        : []
 
   return {
     applicant: { name: '' },
@@ -134,7 +176,7 @@ export function consultationInfoToCaseProfile(info: ConsultationInfo): CaseProfi
         ? (terminationReasonMap[info.terminationReason] || 'unknown')
         : 'unknown',
     },
-    disputeTypes: ['illegal_dismissal'],
+    disputeTypes,
     evidence: evidenceList,
     disputePhase:
       info.previousAction === 'arbitration'
@@ -142,5 +184,26 @@ export function consultationInfoToCaseProfile(info: ConsultationInfo): CaseProfi
         : info.previousAction === 'negotiation'
           ? 'negotiation'
           : 'none',
+  }
+}
+
+function formatDate(year: string, month: string, day?: string): string {
+  return `${year}-${month.padStart(2, '0')}-${(day || '01').padStart(2, '0')}`
+}
+
+function normalizeAmount(rawAmount: string, unit?: string): number {
+  const numeric = Number(rawAmount)
+  if (!Number.isFinite(numeric)) {
+    return 0
+  }
+
+  switch ((unit || '').toLowerCase()) {
+    case '万':
+      return Math.round(numeric * 10000)
+    case '千':
+    case 'k':
+      return Math.round(numeric * 1000)
+    default:
+      return Math.round(numeric)
   }
 }
