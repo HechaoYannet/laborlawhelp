@@ -12,7 +12,6 @@ import {
   SheetDescription,
   SheetHeader,
   SheetTitle,
-  SheetTrigger,
 } from '@/components/ui/sheet'
 import {
   AlertTriangle,
@@ -56,6 +55,7 @@ const RISK_CHECK_FUNCTIONS: Record<RiskScenario, () => RiskCheck> = {
 export default function HRRiskCheckPage() {
   const [checks, setChecks] = useState<RiskCheck[]>([])
   const [selectedCheck, setSelectedCheck] = useState<RiskCheck | null>(null)
+  const [sheetOpen, setSheetOpen] = useState(false)
 
   // 执行所有检查
   const runAllChecks = () => {
@@ -70,6 +70,7 @@ export default function HRRiskCheckPage() {
   const runSingleCheck = (scenario: RiskScenario) => {
     const check = RISK_CHECK_FUNCTIONS[scenario]()
     setSelectedCheck(check)
+    setSheetOpen(true)
   }
 
   // 综合报告
@@ -280,12 +281,7 @@ export default function HRRiskCheckPage() {
         </Tabs>
 
         {/* 风险详情弹窗 */}
-        <Sheet>
-          <SheetTrigger asChild>
-            <Button variant="outline" className="hidden">
-              打开详情
-            </Button>
-          </SheetTrigger>
+        <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
           <SheetContent className="w-[600px] max-w-full">
             {selectedCheck && (
               <>

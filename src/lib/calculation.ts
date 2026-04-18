@@ -51,11 +51,14 @@ function calculateTerminationCompensation(
   // 在职月数
   const months = laborRelation.duration || calculateDuration(laborRelation.startDate, laborRelation.endDate)
   // 月工资
-  const monthlySalary = wageInfo.monthlySalary || 4500
+  const monthlySalary = wageInfo.monthlySalary
+
+  if (months <= 0 || !monthlySalary || monthlySalary <= 0) {
+    return items
+  }
 
   // 计算N（按在职年限）
-  let nMonths = Math.ceil(months / 12)
-  if (nMonths < 0.5) nMonths = 0.5
+  let nMonths = calculateCompensationBase(months)
   if (nMonths > XIAN_PARAMS.compensationCap) nMonths = XIAN_PARAMS.compensationCap
 
   // 判断是否违法解除
@@ -118,22 +121,28 @@ function calculateUnsignContractCompensation(
 
   if (laborRelation.contractStatus === 'unsigned') {
     const months = laborRelation.duration || calculateDuration(laborRelation.startDate, laborRelation.endDate)
-    const monthlySalary = wageInfo.monthlySalary || 4500
+    const monthlySalary = wageInfo.monthlySalary
+
+    if (!monthlySalary || monthlySalary <= 0 || months <= 1) {
+      return items
+    }
 
     // 未签合同超过1个月不满1年：每月支付2倍工资
     // 最多11个月
-    const unpaidMonths = Math.min(Math.floor(months), 11)
+    const unpaidMonths = Math.max(0, Math.min(Math.floor(months) - 1, 11))
     const amount = Math.round(monthlySalary * unpaidMonths)
 
-    items.push({
-      name: '未签订劳动合同双倍工资差额',
-      legalBasis: '《中华人民共和国劳动合同法》第八十二条第一款',
-      calculationBasis: `月工资 ${monthlySalary}元 × 未签合同月数 ${unpaidMonths}个月`,
-      calculationProcess: `${monthlySalary} × ${unpaidMonths} = ${amount}`,
-      amount,
-      remark: `用人单位自用工之日起超过1个月不满1年未与劳动者订立书面劳动合同的，应每月支付二倍工资`,
-      category: 'system_estimate',
-    })
+    if (unpaidMonths > 0) {
+      items.push({
+        name: '未签订劳动合同双倍工资差额',
+        legalBasis: '《中华人民共和国劳动合同法》第八十二条第一款',
+        calculationBasis: `月工资 ${monthlySalary}元 × 未签合同月数 ${unpaidMonths}个月`,
+        calculationProcess: `${monthlySalary} × ${unpaidMonths} = ${amount}`,
+        amount,
+        remark: `用人单位自用工之日起超过1个月不满1年未与劳动者订立书面劳动合同的，应每月支付二倍工资`,
+        category: 'system_estimate',
+      })
+    }
   } else if (laborRelation.contractStatus === 'lost') {
     // 合同丢失，公司需证明已签合同，否则承担不利后果
     items.push({
@@ -195,7 +204,11 @@ function calculateWageArrears(profile: CaseProfile): CalculationItem[] {
 // ========================================
 // 计算加班费
 // ========================================
-function calculateOvertimePay(): CalculationItem[] {
+function calculateOvertimePay(profile: CaseProfile): CalculationItem[] {
+  if (!profile.disputeTypes.includes('unpaid_overtime')) {
+    return []
+  }
+
   const items: CalculationItem[] = []
 
   // 加班费需要考勤记录等证据，这里做基础计算
@@ -221,17 +234,25 @@ function calculateUnusedAnnualLeave(
   profile: CaseProfile,
   years: number = 1
 ): CalculationItem[] {
+  if (!profile.disputeTypes.includes('leave_arrears')) {
+    return []
+  }
+
   const items: CalculationItem[] = []
-  const monthlySalary = profile.wageInfo.monthlySalary || 4500
+  const monthlySalary = profile.wageInfo.monthlySalary
+  if (!monthlySalary || monthlySalary <= 0) {
+    return items
+  }
   const dailySalary = Math.round((monthlySalary / 21.75) * 100) / 100
 
   // 每年应休年假天数（按累计工作年限）
   let annualLeaveDays = XIAN_PARAMS.annualLeaveDays
-  if (profile.laborRelation.duration >= 120) {
+  const duration = profile.laborRelation.duration || calculateDuration(profile.laborRelation.startDate, profile.laborRelation.endDate)
+  if (duration >= 120) {
     // 满10年不满20年
     annualLeaveDays = 10
   }
-  if (profile.laborRelation.duration >= 240) {
+  if (duration >= 240) {
     // 满20年
     annualLeaveDays = 15
   }
@@ -296,7 +317,7 @@ export function calculateCompensation(profile: CaseProfile): CalculationResult {
   items.push(...calculateWageArrears(profile))
 
   // 4. 加班费
-  items.push(...calculateOvertimePay())
+  items.push(...calculateOvertimePay(profile))
 
   // 5. 未休年假
   items.push(...calculateUnusedAnnualLeave(profile))
@@ -337,6 +358,21 @@ function calculateDuration(startDate: string, endDate?: string): number {
   return Math.max(0, months)
 }
 
+function calculateCompensationBase(months: number): number {
+  if (months <= 0) {
+    return 0
+  }
+
+  const fullYears = Math.floor(months / 12)
+  const remainingMonths = months % 12
+
+  if (remainingMonths === 0) {
+    return fullYears
+  }
+
+  return remainingMonths < 6 ? fullYears + 0.5 : fullYears + 1
+}
+
 // 生成摘要文本
 function generateSummary(items: CalculationItem[], total: number): string {
   const definiteItems = items.filter((i) => i.category === 'system_estimate')
@@ -373,7 +409,7 @@ export function getCaseMetrics(profile: CaseProfile) {
 
   return {
     duration,                    // 在职月数
-    monthlySalary: profile.wageInfo.monthlySalary || 4500,
+    monthlySalary: profile.wageInfo.monthlySalary || 0,
     isOralTermination: profile.termination.way === 'oral_notice',
     hasContract: profile.laborRelation.contractStatus === 'signed',
     hasEvidence: profile.evidence.length > 0,
