@@ -43,7 +43,9 @@ export interface MiddlewareChatHandlers {
 const DEFAULT_API_BASE_URL = '/api/v1'
 
 function getApiBaseUrl() {
-  const fromEnv = process.env.NEXT_PUBLIC_MIDDLEWARE_API_BASE_URL
+  const fromEnv =
+    process.env.NEXT_PUBLIC_MIDDLEND_BASE_URL ||
+    process.env.NEXT_PUBLIC_MIDDLEWARE_API_BASE_URL
   if (!fromEnv) return DEFAULT_API_BASE_URL
   return fromEnv.replace(/\/$/, '')
 }
@@ -203,6 +205,7 @@ export async function streamSessionChat(
   const reader = response.body.getReader()
   const decoder = new TextDecoder('utf-8')
   let buffer = ''
+  let lastSeq = typeof request.client_seq === 'number' ? request.client_seq : 0
 
   while (true) {
     const { done, value } = await reader.read()
@@ -224,6 +227,14 @@ export async function streamSessionChat(
         case 'content_delta': {
           const delta = typeof data.delta === 'string' ? data.delta : ''
           const seq = typeof data.seq === 'number' ? data.seq : undefined
+
+          if (typeof seq === 'number') {
+            if (seq <= lastSeq) {
+              continue
+            }
+            lastSeq = seq
+          }
+
           handlers.onContentDelta?.(delta, seq)
           break
         }

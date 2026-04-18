@@ -99,6 +99,9 @@ scripts/
 
 - `NEXT_PUBLIC_APP_URL`：站点公开地址
 - `NEXT_PUBLIC_ENABLE_DEV_INSPECTOR`：是否在开发模式启用 inspector
+- `NEXT_PUBLIC_ENABLE_MIDDLEWARE_CHAT`：是否启用中间件咨询主链路
+- `NEXT_PUBLIC_MIDDLEND_BASE_URL`：中间件 API 基础地址（默认 `http://localhost:8000`）
+- `NEXT_PUBLIC_ENABLE_LOCAL_FALLBACK`：中间件失败时是否允许本地规则回退
 - `HOSTNAME`：服务监听地址
 - `PORT`：服务监听端口
 
@@ -110,6 +113,8 @@ scripts/
 
 - `COZE_PROJECT_ENV`
 - `COZE_WORKSPACE_PATH`
+- `NEXT_PUBLIC_MIDDLEWARE_API_BASE_URL`（兼容旧中间件地址变量）
+- `NEXT_PUBLIC_ENABLE_LOCAL_RULE_FALLBACK`（兼容旧本地回退开关）
 
 ## 7. 交接清单（建议逐项勾选）
 

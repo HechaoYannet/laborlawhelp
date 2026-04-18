@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useSpeechRecognition } from '@/hooks/use-speech-recognition'
 import { Button } from '@/components/ui/button'
 import { Mic, MicOff, Send, User, Bot, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
@@ -21,7 +21,9 @@ import type { PanelImperativeHandle } from 'react-resizable-panels'
 
 export default function LaborRightsConsultation() {
   const middlewareModeEnabled = process.env.NEXT_PUBLIC_ENABLE_MIDDLEWARE_CHAT === 'true'
-  const localFallbackEnabled = process.env.NEXT_PUBLIC_ENABLE_LOCAL_RULE_FALLBACK === 'true'
+  const localFallbackEnabled =
+    process.env.NEXT_PUBLIC_ENABLE_LOCAL_FALLBACK === 'true' ||
+    process.env.NEXT_PUBLIC_ENABLE_LOCAL_RULE_FALLBACK === 'true'
 
   const [inputValue, setInputValue] = useState('')
   const [isThinking, setIsThinking] = useState(false)
@@ -74,7 +76,7 @@ export default function LaborRightsConsultation() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, displayText])
 
-  const resizeTextarea = (element?: HTMLTextAreaElement) => {
+  const resizeTextarea = useCallback((element?: HTMLTextAreaElement) => {
     const target = element ?? inputRef.current
     if (!target) return
 
@@ -83,12 +85,12 @@ export default function LaborRightsConsultation() {
     const nextHeight = Math.min(target.scrollHeight, maxHeight)
     target.style.height = `${nextHeight}px`
     target.style.overflowY = target.scrollHeight > maxHeight ? 'auto' : 'hidden'
-  }
+  }, [isCompactLandscape, isWideScreen])
 
   // 输入框自动高度（达到上限后显示滚动条）
   useEffect(() => {
     resizeTextarea()
-  }, [inputValue, isWideScreen, isCompactLandscape])
+  }, [inputValue, resizeTextarea])
 
   // 大屏与横屏状态
   useEffect(() => {
@@ -270,6 +272,7 @@ export default function LaborRightsConsultation() {
 
     setSessionContext({
       status: 'initializing',
+      isStreaming: false,
       mode: 'middleware',
       lastError: null,
     })
@@ -291,6 +294,7 @@ export default function LaborRightsConsultation() {
       sessionId,
       anonymousToken,
       status: 'active',
+      isStreaming: false,
       mode: 'middleware',
       lastError: null,
     })
@@ -302,11 +306,21 @@ export default function LaborRightsConsultation() {
     applyConsultationExtraction(userMessage)
 
     const { sessionId, anonymousToken } = await ensureMiddlewareSession()
-    let streamError: string | null = null
+    let streamErrorCode = ''
+    let streamErrorMessage = ''
+    let streamErrorRetryable = false
 
     streamedResponseRef.current = ''
     setDisplayText('')
-    setSessionContext({ status: 'streaming' })
+    setSessionContext({
+      status: 'streaming',
+      isStreaming: true,
+      currentMessageId: null,
+      lastToolName: null,
+      lastToolResultSummary: null,
+      finalPayload: null,
+      lastError: null,
+    })
 
     await streamSessionChat(
       sessionId,
@@ -315,9 +329,11 @@ export default function LaborRightsConsultation() {
         client_seq: sessionContext.streamSeq,
       },
       {
-        onMessageStart: () => {
+        onMessageStart: (payload) => {
+          const messageId = typeof payload.message_id === 'string' ? payload.message_id : null
           streamedResponseRef.current = ''
           setDisplayText('')
+          setSessionContext({ currentMessageId: messageId })
         },
         onContentDelta: (delta, seq) => {
           if (!delta) return
@@ -328,22 +344,90 @@ export default function LaborRightsConsultation() {
             setSessionContext({ streamSeq: seq })
           }
         },
+        onToolCall: (payload) => {
+          const toolName = typeof payload.tool_name === 'string' ? payload.tool_name : '处理中'
+          setSessionContext({
+            lastToolName: toolName,
+            lastToolResultSummary: null,
+          })
+        },
+        onToolResult: (payload) => {
+          const toolName = typeof payload.tool_name === 'string' ? payload.tool_name : null
+          const resultSummary =
+            typeof payload.result_summary === 'string' ? payload.result_summary : '工具调用已完成'
+
+          setSessionContext({
+            lastToolName: toolName,
+            lastToolResultSummary: resultSummary,
+          })
+        },
+        onFinal: (payload) => {
+          const summary = typeof payload.summary === 'string' ? payload.summary : undefined
+          const ruleVersion = typeof payload.rule_version === 'string' ? payload.rule_version : undefined
+          const references = Array.isArray(payload.references)
+            ? payload.references
+                .filter((item) => item && typeof item === 'object')
+                .map((item) => {
+                  const ref = item as Record<string, unknown>
+                  return {
+                    title: typeof ref.title === 'string' ? ref.title : undefined,
+                    url: typeof ref.url === 'string' ? ref.url : undefined,
+                    snippet: typeof ref.snippet === 'string' ? ref.snippet : undefined,
+                  }
+                })
+            : []
+
+          setSessionContext({
+            finalPayload: {
+              summary,
+              references,
+              ruleVersion,
+            },
+          })
+        },
+        onMessageEnd: () => {
+          setSessionContext({
+            status: 'active',
+            isStreaming: false,
+          })
+        },
         onError: (payload) => {
-          streamError = typeof payload.message === 'string' ? payload.message : '中间件流式会话失败'
+          const rawCode = payload.code
+          streamErrorCode =
+            typeof rawCode === 'number' || typeof rawCode === 'string'
+              ? String(rawCode)
+              : 'OH_SERVICE_ERROR'
+          streamErrorMessage =
+            typeof payload.message === 'string' ? payload.message : '中间件流式会话失败'
+          streamErrorRetryable = Boolean(payload.retryable)
         },
       },
       anonymousToken,
     )
 
-    if (streamError) {
-      throw new Error(streamError)
+    if (streamErrorMessage) {
+      const errorInfo = {
+        code: streamErrorCode || 'OH_SERVICE_ERROR',
+        message: streamErrorMessage,
+        retryable: streamErrorRetryable,
+      }
+      setSessionContext({
+        status: 'error',
+        isStreaming: false,
+        lastError: errorInfo,
+      })
+      throw new Error(errorInfo.message)
     }
 
     const finalText = streamedResponseRef.current.trim() || '抱歉，本次未生成有效回复，请重试。'
     addMessage({ role: 'assistant', content: finalText })
     setDisplayText('')
     setIsThinking(false)
-    setSessionContext({ status: 'active', lastError: null })
+    setSessionContext({
+      status: 'active',
+      isStreaming: false,
+      lastError: null,
+    })
   }
 
   // 提取信息
@@ -543,11 +627,16 @@ ${summary}
       if (middlewareModeEnabled && localFallbackEnabled) {
         try {
           const fallbackResponse = await getAssistantResponse(content)
-          setPendingResponse(fallbackResponse)
+          setPendingResponse(`【本次结果来自回退逻辑】\n\n${fallbackResponse}`)
           setSessionContext({
             mode: 'local',
             status: 'active',
-            lastError: '中间件不可用，已自动切换为本地规则模式。',
+            isStreaming: false,
+            lastError: {
+              code: 'OH_SERVICE_ERROR',
+              message: '中间件不可用，已自动切换为本地规则模式。',
+              retryable: true,
+            },
           })
           setDisplayText('')
           return
@@ -558,7 +647,12 @@ ${summary}
 
       setSessionContext({
         status: 'error',
-        lastError: error instanceof Error ? error.message : '发送失败，请稍后重试。',
+        isStreaming: false,
+        lastError: {
+          code: 'CHAT_REQUEST_FAILED',
+          message: error instanceof Error ? error.message : '发送失败，请稍后重试。',
+          retryable: true,
+        },
       })
       addMessage({ role: 'assistant', content: '服务暂时不可用，请稍后重试。' })
       setDisplayText('')
@@ -782,8 +876,8 @@ ${summary}
   }
 
   const conversationSummary = latestAssistantMessage
-    ? summarizeText(latestAssistantMessage.content)
-    : '等待系统生成会话总结。'
+    ? summarizeText(sessionContext.finalPayload?.summary || latestAssistantMessage.content)
+    : sessionContext.finalPayload?.summary || '等待系统生成会话总结。'
 
   const processStage = (() => {
     if (!consultationInfo.entryDate || !consultationInfo.wage || !consultationInfo.terminationMethod) {
@@ -820,6 +914,10 @@ ${summary}
       ? `辞退：${consultationInfo.terminationMethod === 'verbal' ? '口头通知' : '书面通知'}`
       : '辞退方式未补充',
     consultationInfo.evidence.length > 0 ? `证据：${consultationInfo.evidence.join('、')}` : '证据未补充',
+    sessionContext.finalPayload?.ruleVersion ? `规则版本：${sessionContext.finalPayload.ruleVersion}` : '规则版本待返回',
+    sessionContext.finalPayload?.references?.length
+      ? `引用来源：${sessionContext.finalPayload.references.length} 条`
+      : '引用来源待返回',
   ]
 
   const timelineItems = [

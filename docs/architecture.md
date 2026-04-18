@@ -66,10 +66,10 @@
 
 ## 4. 当前边界与事实
 
-1. 当前为规则驱动系统，未接入真实外部 LLM API。
+1. 咨询主链路已接入中间件 SSE（cases/sessions/chat），本地规则保留为回退路径。
 2. 语音识别依赖浏览器 Web Speech API。
 3. 仓库中暂无可执行 MCP server/client 链路。
-4. UI 层与领域层存在直接调用，服务层边界仍较薄。
+4. `consultation/page.tsx` 仍存在较多状态编排逻辑，服务层边界需继续下沉收口。
 
 ## 5. 主要技术债
 

@@ -43,23 +43,45 @@ function createMessageId() {
 export type SessionRuntimeStatus = 'idle' | 'initializing' | 'active' | 'streaming' | 'error'
 export type ConsultationRuntimeMode = 'local' | 'middleware'
 
+export interface SessionStreamError {
+  code: string
+  message: string
+  retryable: boolean
+}
+
+export interface SessionFinalPayload {
+  summary?: string
+  references: Array<{ title?: string; url?: string; snippet?: string }>
+  ruleVersion?: string
+}
+
 export interface SessionContextState {
   caseId: string | null
   sessionId: string | null
   anonymousToken: string | null
+  currentMessageId: string | null
+  isStreaming: boolean
   streamSeq: number
   status: SessionRuntimeStatus
   mode: ConsultationRuntimeMode
-  lastError: string | null
+  lastToolName: string | null
+  lastToolResultSummary: string | null
+  finalPayload: SessionFinalPayload | null
+  lastError: SessionStreamError | null
 }
 
 const initialSessionContext: SessionContextState = {
   caseId: null,
   sessionId: null,
   anonymousToken: null,
+  currentMessageId: null,
+  isStreaming: false,
   streamSeq: 0,
   status: 'idle',
   mode: 'local',
+  lastToolName: null,
+  lastToolResultSummary: null,
+  finalPayload: null,
   lastError: null,
 }
 
