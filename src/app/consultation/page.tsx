@@ -11,10 +11,18 @@ import {
   mergeConsultationInfo,
   consultationInfoToCaseProfile,
 } from '@/features/consultation/services/consultation-profile'
+import {
+  createCase,
+  createSession,
+  streamSessionChat,
+} from '@/features/consultation/services/middleware-api'
 import { useCaseStore } from '@/hooks/use-case-store'
 import type { PanelImperativeHandle } from 'react-resizable-panels'
 
 export default function LaborRightsConsultation() {
+  const middlewareModeEnabled = process.env.NEXT_PUBLIC_ENABLE_MIDDLEWARE_CHAT === 'true'
+  const localFallbackEnabled = process.env.NEXT_PUBLIC_ENABLE_LOCAL_RULE_FALLBACK === 'true'
+
   const [inputValue, setInputValue] = useState('')
   const [isThinking, setIsThinking] = useState(false)
   const [displayText, setDisplayText] = useState('')
@@ -39,6 +47,9 @@ export default function LaborRightsConsultation() {
     setConsultationInfo,
     resetConsultationInfo,
     resetExtractedInfo,
+    sessionContext,
+    setSessionContext,
+    resetSessionContext,
   } = useCaseStore()
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -47,6 +58,7 @@ export default function LaborRightsConsultation() {
   const composerRef = useRef<HTMLDivElement>(null)
   const sidebarPanelRef = useRef<PanelImperativeHandle | null>(null)
   const lastMessageCountRef = useRef(0)
+  const streamedResponseRef = useRef('')
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
 
   const {
@@ -229,8 +241,110 @@ export default function LaborRightsConsultation() {
     clearMessages()
     resetExtractedInfo()
     resetConsultationInfo()
+    resetSessionContext()
+    setSessionContext({ mode: middlewareModeEnabled ? 'middleware' : 'local' })
     addMessage({ role: 'assistant', content: '请告诉我您的诉求' })
-  }, [addMessage, clearMessages, resetExtractedInfo, resetConsultationInfo])
+  }, [
+    addMessage,
+    clearMessages,
+    middlewareModeEnabled,
+    resetExtractedInfo,
+    resetConsultationInfo,
+    resetSessionContext,
+    setSessionContext,
+  ])
+
+  const applyConsultationExtraction = (userMessage: string) => {
+    const newInfo = extractConsultationInfo(userMessage)
+    const info = mergeConsultationInfo(consultationInfo, newInfo)
+    setConsultationInfo(info)
+    updateExtractedInfo(consultationInfoToCaseProfile(info))
+
+    return { info, newInfo }
+  }
+
+  const ensureMiddlewareSession = async () => {
+    let caseId = sessionContext.caseId
+    let sessionId = sessionContext.sessionId
+    let anonymousToken = sessionContext.anonymousToken
+
+    setSessionContext({
+      status: 'initializing',
+      mode: 'middleware',
+      lastError: null,
+    })
+
+    if (!caseId) {
+      const caseResult = await createCase(anonymousToken)
+      caseId = caseResult.caseId
+      anonymousToken = caseResult.anonymousToken ?? anonymousToken
+    }
+
+    if (!sessionId) {
+      const sessionResult = await createSession(caseId, anonymousToken)
+      sessionId = sessionResult.sessionId
+      anonymousToken = sessionResult.anonymousToken ?? anonymousToken
+    }
+
+    setSessionContext({
+      caseId,
+      sessionId,
+      anonymousToken,
+      status: 'active',
+      mode: 'middleware',
+      lastError: null,
+    })
+
+    return { caseId, sessionId, anonymousToken }
+  }
+
+  const getAssistantResponseFromMiddleware = async (userMessage: string) => {
+    applyConsultationExtraction(userMessage)
+
+    const { sessionId, anonymousToken } = await ensureMiddlewareSession()
+    let streamError: string | null = null
+
+    streamedResponseRef.current = ''
+    setDisplayText('')
+    setSessionContext({ status: 'streaming' })
+
+    await streamSessionChat(
+      sessionId,
+      {
+        message: userMessage,
+        client_seq: sessionContext.streamSeq,
+      },
+      {
+        onMessageStart: () => {
+          streamedResponseRef.current = ''
+          setDisplayText('')
+        },
+        onContentDelta: (delta, seq) => {
+          if (!delta) return
+
+          streamedResponseRef.current += delta
+          setDisplayText(streamedResponseRef.current)
+          if (typeof seq === 'number') {
+            setSessionContext({ streamSeq: seq })
+          }
+        },
+        onError: (payload) => {
+          streamError = typeof payload.message === 'string' ? payload.message : '中间件流式会话失败'
+        },
+      },
+      anonymousToken,
+    )
+
+    if (streamError) {
+      throw new Error(streamError)
+    }
+
+    const finalText = streamedResponseRef.current.trim() || '抱歉，本次未生成有效回复，请重试。'
+    addMessage({ role: 'assistant', content: finalText })
+    setDisplayText('')
+    setIsThinking(false)
+    setSessionContext({ status: 'active', lastError: null })
+  }
 
   // 提取信息
   // 生成回复
@@ -239,13 +353,7 @@ export default function LaborRightsConsultation() {
     const allText = [...messages.map(m => m.content), userMessage].join('\n')
     const lower = allText.toLowerCase()
     
-    // 提取信息
-    const newInfo = extractConsultationInfo(userMessage)
-    
-    // 合并到已收集信息
-    const info = mergeConsultationInfo(consultationInfo, newInfo)
-    setConsultationInfo(info)
-    updateExtractedInfo(consultationInfoToCaseProfile(info))
+    const { info, newInfo } = applyConsultationExtraction(userMessage)
 
     // 检测是否在描述劳动纠纷
     const isDescribingDispute = /辞|开|不用来|被辞|被开|辞退|裁员|开除/.test(lower)
@@ -422,10 +530,38 @@ ${summary}
     setIsThinking(true)
 
     try {
+      if (middlewareModeEnabled) {
+        await getAssistantResponseFromMiddleware(content)
+        return
+      }
+
       const response = await getAssistantResponse(content)
       setPendingResponse(response)
     } catch (error) {
       console.error('Error:', error)
+
+      if (middlewareModeEnabled && localFallbackEnabled) {
+        try {
+          const fallbackResponse = await getAssistantResponse(content)
+          setPendingResponse(fallbackResponse)
+          setSessionContext({
+            mode: 'local',
+            status: 'active',
+            lastError: '中间件不可用，已自动切换为本地规则模式。',
+          })
+          setDisplayText('')
+          return
+        } catch (fallbackError) {
+          console.error('Fallback error:', fallbackError)
+        }
+      }
+
+      setSessionContext({
+        status: 'error',
+        lastError: error instanceof Error ? error.message : '发送失败，请稍后重试。',
+      })
+      addMessage({ role: 'assistant', content: '服务暂时不可用，请稍后重试。' })
+      setDisplayText('')
       setIsThinking(false)
     }
   }

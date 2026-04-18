@@ -40,6 +40,29 @@ function createMessageId() {
   return `msg_${Date.now()}`
 }
 
+export type SessionRuntimeStatus = 'idle' | 'initializing' | 'active' | 'streaming' | 'error'
+export type ConsultationRuntimeMode = 'local' | 'middleware'
+
+export interface SessionContextState {
+  caseId: string | null
+  sessionId: string | null
+  anonymousToken: string | null
+  streamSeq: number
+  status: SessionRuntimeStatus
+  mode: ConsultationRuntimeMode
+  lastError: string | null
+}
+
+const initialSessionContext: SessionContextState = {
+  caseId: null,
+  sessionId: null,
+  anonymousToken: null,
+  streamSeq: 0,
+  status: 'idle',
+  mode: 'local',
+  lastError: null,
+}
+
 interface CaseStoreContextType {
   // State
   caseProfile: CaseProfile
@@ -52,6 +75,7 @@ interface CaseStoreContextType {
   currentStage: DialogueStage
   extractedInfo: Partial<CaseProfile>
   consultationInfo: ConsultationInfo
+  sessionContext: SessionContextState
   
   // Actions
   updateCaseProfile: (updates: Partial<CaseProfile>) => void
@@ -76,6 +100,8 @@ interface CaseStoreContextType {
   setCurrentStage: (stage: DialogueStage) => void
   updateExtractedInfo: (info: Partial<CaseProfile>) => void
   setConsultationInfo: (info: ConsultationInfo) => void
+  setSessionContext: (updates: Partial<SessionContextState>) => void
+  resetSessionContext: () => void
   resetConsultationInfo: () => void
   resetExtractedInfo: () => void
   resetAll: () => void
@@ -94,6 +120,7 @@ export function CaseStoreProvider({ children }: { children: ReactNode }) {
   const [currentStage, setStage] = useState<DialogueStage>('initial')
   const [extractedInfo, setExtracted] = useState<Partial<CaseProfile>>({})
   const [consultationInfo, setConsultationInfoState] = useState<ConsultationInfo>(createEmptyConsultationInfo())
+  const [sessionContext, setSessionContextState] = useState<SessionContextState>(initialSessionContext)
 
   const updateCaseProfile = useCallback((updates: Partial<CaseProfile>) => {
     setCaseProfile(prev => ({ ...prev, ...updates }))
@@ -204,6 +231,14 @@ export function CaseStoreProvider({ children }: { children: ReactNode }) {
     setConsultationInfoState(info)
   }, [])
 
+  const setSessionContext = useCallback((updates: Partial<SessionContextState>) => {
+    setSessionContextState(prev => ({ ...prev, ...updates }))
+  }, [])
+
+  const resetSessionContext = useCallback(() => {
+    setSessionContextState(initialSessionContext)
+  }, [])
+
   const resetConsultationInfo = useCallback(() => {
     setConsultationInfoState(createEmptyConsultationInfo())
   }, [])
@@ -223,6 +258,7 @@ export function CaseStoreProvider({ children }: { children: ReactNode }) {
     setStage('initial')
     setExtracted({})
     setConsultationInfoState(createEmptyConsultationInfo())
+    setSessionContextState(initialSessionContext)
   }, [])
 
   const value: CaseStoreContextType = {
@@ -236,6 +272,7 @@ export function CaseStoreProvider({ children }: { children: ReactNode }) {
     currentStage,
     extractedInfo,
     consultationInfo,
+    sessionContext,
     updateCaseProfile,
     updateApplicant,
     updateRespondent,
@@ -258,6 +295,8 @@ export function CaseStoreProvider({ children }: { children: ReactNode }) {
     setCurrentStage,
     updateExtractedInfo,
     setConsultationInfo,
+    setSessionContext,
+    resetSessionContext,
     resetConsultationInfo,
     resetExtractedInfo,
     resetAll,
