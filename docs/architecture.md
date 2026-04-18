@@ -19,12 +19,14 @@
 - `src/app/(home)/page.tsx`：导航首页。
 - `src/app/consultation/page.tsx`：劳动者咨询主流程。
 - `src/app/hr-risk/page.tsx`：企业端 HR 风险检查主流程。
+- `src/app/demo/*`：演示数据与旧版步骤页兼容代码。
 - `src/app/layout.tsx`：全局 metadata、Provider、开发辅助注入。
 
 ### 2.2 状态层
 
 - `src/hooks/use-case-store.tsx`：案情主状态（案情、时间线、消息、计算结果、文书等）。
 - `src/hooks/use-speech-recognition.ts`：浏览器 Web Speech API 封装。
+- `src/features/demo/state/use-dismiss-demo-store.ts`：旧版演示页状态（本地存储，兼容保留）。
 
 ### 2.3 领域层
 
@@ -34,6 +36,8 @@
 - `src/lib/document-generator.ts`：文书模板生成。
 - `src/lib/case-triage.ts`：案件复杂度评估与分流。
 - `src/lib/hr-risk-check.ts`：HR 风险规则与报告生成。
+- `src/features/demo/data/dismiss-demo-data.ts`：演示固定数据与文案。
+- `src/features/demo/services/dismiss-chat-demo.ts`：咨询页内的硬编码演示脚本与固定案情数据。
 
 ### 2.4 运行层
 
@@ -64,12 +68,20 @@
 2. 规则函数逐项检查。
 3. 输出风险等级、优先问题与整改建议。
 
+### 3.4 违法辞退演示流程
+
+1. 从首页演示卡片进入 `/consultation?demo=dismiss`。
+2. 直接在现有 AI 对话界面内完成 8 轮固定问答。
+3. 聊天内容内给出案情摘要、陕西口径测算、文书建议与分流建议。
+4. 全流程仅消费前端固定数据，不触发真实 API。
+
 ## 4. 当前边界与事实
 
 1. 当前为规则驱动系统，未接入真实外部 LLM API。
 2. 语音识别依赖浏览器 Web Speech API。
 3. 仓库中暂无可执行 MCP server/client 链路。
 4. UI 层与领域层存在直接调用，服务层边界仍较薄。
+5. 演示链路由 consultation 页面内的 query 参数切换，聊天内容保持在同一界面中展示。
 
 ## 5. 主要技术债
 

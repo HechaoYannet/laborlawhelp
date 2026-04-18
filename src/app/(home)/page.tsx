@@ -11,6 +11,7 @@ import {
   Calculator,
   Users,
   Building2,
+  PlayCircle,
   ChevronRight,
   ArrowRight,
 } from 'lucide-react'
@@ -33,6 +34,9 @@ export default function HomePage() {
           <nav className="hidden md:flex items-center gap-6">
             <Link href="/" className="text-sm font-medium text-slate-600 hover:text-slate-900">
               首页
+            </Link>
+            <Link href="/consultation?demo=dismiss" className="text-sm font-medium text-slate-600 hover:text-slate-900">
+              演示流程
             </Link>
             <Link href="/consultation" className="text-sm font-medium text-blue-600">
               劳动者维权
@@ -82,6 +86,46 @@ export default function HomePage() {
 
         {/* 功能卡片 */}
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-16">
+          {/* 演示卡片 */}
+          <Card className="border-sky-200 bg-gradient-to-b from-sky-50 to-white hover:shadow-lg hover:shadow-sky-500/10 transition-all duration-300 hover:-translate-y-1">
+            <CardHeader>
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-sky-500 to-cyan-600 flex items-center justify-center mb-4 shadow-lg shadow-sky-500/25">
+                <PlayCircle className="w-7 h-7 text-white" />
+              </div>
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-xl">违法辞退（陕西口径演示）</CardTitle>
+                <Badge variant="outline" className="bg-sky-100 text-sky-700 border-sky-200">演示</Badge>
+              </div>
+              <CardDescription>全前端固定链路，适用于评审与合作方现场讲解</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-sky-100 flex items-center justify-center flex-shrink-0">
+                  <FileText className="w-4 h-4 text-sky-600" />
+                </div>
+                <div>
+                  <p className="font-medium text-slate-800">8步固定问诊</p>
+                  <p className="text-sm text-slate-500">点击选项自动推进，完整回显</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-cyan-100 flex items-center justify-center flex-shrink-0">
+                  <Calculator className="w-4 h-4 text-cyan-600" />
+                </div>
+                <div>
+                  <p className="font-medium text-slate-800">陕西口径测算展示</p>
+                  <p className="text-sm text-slate-500">税前与到手对比一屏呈现</p>
+                </div>
+              </div>
+              <Link href="/consultation?demo=dismiss">
+                <Button className="w-full mt-4 bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700">
+                  进入演示流程
+                  <ChevronRight className="w-4 h-4 ml-2" />
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+
           {/* 劳动者端卡片 */}
           <Card className="border-blue-200 hover:shadow-lg hover:shadow-blue-500/10 transition-all duration-300 hover:-translate-y-1">
             <CardHeader>

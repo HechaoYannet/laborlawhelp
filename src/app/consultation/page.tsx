@@ -13,8 +13,21 @@ import {
 } from '@/features/consultation/services/consultation-profile'
 import { useCaseStore } from '@/hooks/use-case-store'
 import type { PanelImperativeHandle } from 'react-resizable-panels'
+import {
+  dismissDemoCaseProfile,
+  dismissDemoConsultationInfo,
+  dismissDemoGreeting,
+  dismissDemoStepCards,
+  getDismissDemoStageSummary,
+  getDismissDemoAssistantReply,
+} from '@/features/demo/services/dismiss-chat-demo'
+import { DismissDemoResultCards } from '@/features/demo/components/dismiss-demo-result-cards'
+
+const DEMO_DOCUMENTS_CARD_MESSAGE = '__DEMO_DOCUMENTS_CARD__'
+const DEMO_LAWYER_CARD_MESSAGE = '__DEMO_LAWYER_CARD__'
 
 export default function LaborRightsConsultation() {
+  const [isDismissDemo, setIsDismissDemo] = useState<boolean | null>(null)
   const [inputValue, setInputValue] = useState('')
   const [isThinking, setIsThinking] = useState(false)
   const [displayText, setDisplayText] = useState('')
@@ -29,17 +42,31 @@ export default function LaborRightsConsultation() {
   const [unreadCount, setUnreadCount] = useState(0)
   const [summaryCopied, setSummaryCopied] = useState(false)
   const [packageCopied, setPackageCopied] = useState(false)
+  const [demoDocumentsGenerated, setDemoDocumentsGenerated] = useState(false)
+  const [demoLawyerCardPushed, setDemoLawyerCardPushed] = useState(false)
+  const [copiedDocumentType, setCopiedDocumentType] = useState<string | null>(null)
 
   const {
+    documents,
+    recommendedLawyers,
     messages,
     addMessage,
+    addDocument,
     clearMessages,
+    set分流结果: setTriageResult,
+    setRecommendedLawyers,
     updateExtractedInfo,
+    updateCaseProfile,
     consultationInfo,
     setConsultationInfo,
     resetConsultationInfo,
     resetExtractedInfo,
   } = useCaseStore()
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    setIsDismissDemo(params.get('demo') === 'dismiss')
+  }, [])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -229,12 +256,79 @@ export default function LaborRightsConsultation() {
     clearMessages()
     resetExtractedInfo()
     resetConsultationInfo()
+    setDemoDocumentsGenerated(false)
+    setDemoLawyerCardPushed(false)
+    setCopiedDocumentType(null)
+    if (isDismissDemo) {
+      updateCaseProfile(dismissDemoCaseProfile)
+      setConsultationInfo(dismissDemoConsultationInfo)
+      addMessage({ role: 'assistant', content: dismissDemoGreeting })
+      return
+    }
+
     addMessage({ role: 'assistant', content: '请告诉我您的诉求' })
-  }, [addMessage, clearMessages, resetExtractedInfo, resetConsultationInfo])
+  }, [
+    addMessage,
+    clearMessages,
+    isDismissDemo,
+    resetExtractedInfo,
+    resetConsultationInfo,
+    setConsultationInfo,
+    updateCaseProfile,
+  ])
+
+  const handleGenerateDemoDocuments = async () => {
+    if (!isDemoMode || demoDocumentsGenerated) return
+
+    const { calculateCompensation } = await import('@/lib/calculation')
+    const { generateDocument } = await import('@/lib/document-generator')
+
+    const baseProfile = dismissDemoCaseProfile
+    const calculation = calculateCompensation(baseProfile)
+
+    const generatedDocs = [
+      generateDocument('arbitration_application', baseProfile, calculation),
+      generateDocument('evidence_directory', baseProfile, calculation),
+      generateDocument('action_checklist', baseProfile, calculation),
+    ]
+
+    generatedDocs.forEach((document) => addDocument(document))
+    addMessage({ role: 'assistant', content: DEMO_DOCUMENTS_CARD_MESSAGE })
+    setDemoDocumentsGenerated(true)
+  }
+
+  const handlePushDemoLawyerCard = async () => {
+    if (!isDemoMode || demoLawyerCardPushed) return
+
+    const { evaluateCaseComplexity, recommendLawyers } = await import('@/lib/case-triage')
+    const baseProfile = dismissDemoCaseProfile
+    const triageResult = evaluateCaseComplexity(baseProfile)
+    const lawyers = recommendLawyers(baseProfile, 3)
+
+    setTriageResult(triageResult)
+    setRecommendedLawyers(lawyers)
+    addMessage({ role: 'assistant', content: DEMO_LAWYER_CARD_MESSAGE })
+    setDemoLawyerCardPushed(true)
+  }
+
+  const copyDocumentContent = async (documentType: string, content: string) => {
+    try {
+      await navigator.clipboard.writeText(content)
+      setCopiedDocumentType(documentType)
+      window.setTimeout(() => setCopiedDocumentType(null), 1400)
+    } catch (error) {
+      console.error('Failed to copy generated document:', error)
+    }
+  }
 
   // 提取信息
   // 生成回复
   const getAssistantResponse = async (userMessage: string): Promise<string> => {
+    if (isDismissDemo) {
+      const userTurn = messages.filter((message) => message.role === 'user').length
+      return getDismissDemoAssistantReply(userTurn)
+    }
+
     // 合并历史消息分析
     const allText = [...messages.map(m => m.content), userMessage].join('\n')
     const lower = allText.toLowerCase()
@@ -554,6 +648,9 @@ ${summary}
         ? 'pb-[22rem] md:pb-[20rem]'
         : 'pb-[19rem] md:pb-[17rem]'
   const showUnreadBadge = unreadCount > 0
+  const isDemoMode = isDismissDemo === true
+  const modeDescription = isDemoMode ? '违法辞退 · 硬编码对话模式' : '西安地区 · 桌面咨询模式'
+  const modeLabel = isDemoMode ? '陕西口径演示' : '在线咨询'
 
   const renderConversation = (layout: 'mobile' | 'desktop') => {
     const gapClass = layout === 'desktop' ? 'gap-4' : isCompactLandscape ? 'gap-2' : 'gap-3'
@@ -563,28 +660,127 @@ ${summary}
     const textClass = layout === 'desktop' ? 'text-[15px] leading-7' : bubbleTextClass
     const bubbleClass = layout === 'desktop' ? 'px-5 py-4' : bubblePaddingClass
     const thinkingTextClass = layout === 'desktop' ? 'text-sm' : isCompactLandscape ? 'text-xs' : 'text-sm'
+    const isQuestionnaireFinished = isDemoMode && userTurnCount >= 8
 
     return (
       <>
         {messages.map((message, index) => (
-          <div
-            key={index}
-            className={`flex ${gapClass} ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
+          <div key={index} className={`flex ${gapClass} ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             {message.role === 'assistant' && (
               <div className={`${avatarSizeClass} rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0`}>
                 <Bot className={`${assistantIconClass} text-blue-600`} />
               </div>
             )}
-            <div
-              className={`${messageWidthClass} rounded-2xl ${bubbleClass} ${
-                message.role === 'user'
-                  ? 'bg-blue-600 text-white rounded-tr-sm'
-                  : 'bg-white border border-slate-200 text-slate-700 rounded-tl-sm shadow-sm'
-              }`}
-            >
-              <p className={`${textClass} whitespace-pre-wrap`}>{message.content}</p>
-            </div>
+            {(() => {
+              const assistantMessageOrdinal = messages
+                .slice(0, index + 1)
+                .filter((entry) => entry.role === 'assistant').length
+              const showDemoResultCards =
+                message.role === 'assistant' &&
+                isQuestionnaireFinished &&
+                assistantMessageOrdinal === 9
+
+              if (showDemoResultCards) {
+                return (
+                  <div
+                    className={`${layout === 'desktop' ? 'max-w-[88%]' : 'max-w-full'} rounded-2xl border border-slate-200 bg-white p-4 ${
+                      layout === 'desktop' ? 'rounded-tl-sm shadow-sm' : ''
+                    }`}
+                  >
+                    <DismissDemoResultCards
+                      compact={layout === 'mobile'}
+                      onGenerateDocuments={handleGenerateDemoDocuments}
+                      onPushLawyerCard={handlePushDemoLawyerCard}
+                      documentsGenerated={demoDocumentsGenerated}
+                      lawyerCardPushed={demoLawyerCardPushed}
+                    />
+                  </div>
+                )
+              }
+
+              const showGeneratedDocumentsCard =
+                message.role === 'assistant' && message.content === DEMO_DOCUMENTS_CARD_MESSAGE
+
+              if (showGeneratedDocumentsCard) {
+                return (
+                  <div
+                    className={`${layout === 'desktop' ? 'max-w-[88%]' : 'max-w-full'} rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 ${
+                      layout === 'desktop' ? 'rounded-tl-sm shadow-sm' : ''
+                    }`}
+                  >
+                    <p className="text-sm font-semibold text-emerald-900">文书已生成</p>
+                    <p className="mt-1 text-xs leading-5 text-emerald-700">已写入仲裁申请书、证据目录、行动清单，可直接复制使用。</p>
+                    <div className="mt-3 space-y-2">
+                      {documents.map((document) => (
+                        <div key={document.type} className="rounded-xl border border-emerald-200 bg-white px-3 py-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-medium text-slate-900">{document.title}</p>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => copyDocumentContent(document.type, document.content)}
+                              className="h-7 rounded-full border-emerald-200 bg-emerald-50 px-3 text-xs text-emerald-800 hover:bg-emerald-100"
+                            >
+                              {copiedDocumentType === document.type ? '已复制' : '复制文书'}
+                            </Button>
+                          </div>
+                          <p className="mt-1 line-clamp-3 text-xs leading-5 text-slate-600">{document.content}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              }
+
+              const showLawyerCard = message.role === 'assistant' && message.content === DEMO_LAWYER_CARD_MESSAGE
+
+              if (showLawyerCard) {
+                return (
+                  <div
+                    className={`${layout === 'desktop' ? 'max-w-[88%]' : 'max-w-full'} rounded-2xl border border-violet-200 bg-violet-50/70 p-4 ${
+                      layout === 'desktop' ? 'rounded-tl-sm shadow-sm' : ''
+                    }`}
+                  >
+                    <p className="text-sm font-semibold text-violet-900">律师卡片已推送</p>
+                    <p className="mt-1 text-xs leading-5 text-violet-700">案件复杂度为中等，已推送到律师端口并生成预约建议卡。</p>
+
+                    <div className="mt-3 space-y-2">
+                      {recommendedLawyers.length > 0 ? (
+                        recommendedLawyers.map((lawyer) => (
+                          <div key={lawyer.id} className="rounded-xl border border-violet-200 bg-white px-3 py-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-sm font-medium text-slate-900">{lawyer.name} · {lawyer.firm}</p>
+                              <span className="rounded-full bg-violet-100 px-2.5 py-1 text-[10px] font-medium text-violet-800">
+                                信誉 {lawyer.reputationScore}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs text-slate-600">专长：{lawyer.caseTypes.join(' / ')}</p>
+                            <p className="mt-1 text-xs text-slate-600">联系：{lawyer.phone} {lawyer.freeConsultation ? '· 支持免费咨询' : ''}</p>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="rounded-xl border border-violet-200 bg-white px-3 py-3 text-xs text-slate-600">
+                          暂无匹配律师，请稍后刷新推荐。
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              }
+
+              return (
+                <div
+                  className={`${messageWidthClass} rounded-2xl ${bubbleClass} ${
+                    message.role === 'user'
+                      ? 'bg-blue-600 text-white rounded-tr-sm'
+                      : 'bg-white border border-slate-200 text-slate-700 rounded-tl-sm shadow-sm'
+                  }`}
+                >
+                  <p className={`${textClass} whitespace-pre-wrap`}>{message.content}</p>
+                </div>
+              )
+            })()}
             {message.role === 'user' && (
               <div className={`${avatarSizeClass} rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0`}>
                 <User className={`${assistantIconClass} text-slate-600`} />
@@ -638,6 +834,28 @@ ${summary}
 
   const latestAssistantMessage = [...messages].reverse().find((message) => message.role === 'assistant')
   const latestUserMessage = [...messages].reverse().find((message) => message.role === 'user')
+  const userTurnCount = messages.filter((message) => message.role === 'user').length
+  const demoStageSummary = isDemoMode ? getDismissDemoStageSummary(userTurnCount) : null
+  const demoPreviewCards = isDemoMode
+    ? [
+        {
+          title: '案情摘要',
+          value: '2023.03—2025.04 / 到手5600元 / 口头辞退',
+        },
+        {
+          title: '测算结果',
+          value: '28,000元（到手口径）/ 32,500元（税前对比）',
+        },
+        {
+          title: '文书输出',
+          value: '仲裁申请书 + 证据目录 + 行动清单',
+        },
+        {
+          title: '分流建议',
+          value: '中等复杂度，推荐律师介入',
+        },
+      ]
+    : []
 
   const summarizeText = (text: string) => {
     const compactText = text.replace(/\s+/g, ' ').trim()
@@ -778,7 +996,7 @@ ${summary}
                   {!isSidebarCollapsed && (
                     <div>
                       <h1 className="text-lg font-semibold tracking-wide">劳动维权助手</h1>
-                      <p className="mt-1 text-xs text-slate-300">西安地区 · 桌面咨询模式</p>
+                      <p className="mt-1 text-xs text-slate-300">{modeDescription}</p>
                     </div>
                   )}
                 </div>
@@ -819,12 +1037,52 @@ ${summary}
                   </div>
                 ) : (
                   <div className="space-y-5">
+                    {isDemoMode && demoStageSummary && (
+                      <div className="space-y-3 rounded-3xl border border-sky-300/30 bg-sky-500/10 p-5 shadow-xl shadow-black/10">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-medium text-slate-100">甲方要求演示总览</p>
+                            <p className="mt-1 text-xs leading-5 text-slate-300">
+                              聊天界面内完成 7 个展示步骤，当前展示到：{demoStageSummary.stepLabel}
+                            </p>
+                          </div>
+                          <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-slate-100 ring-1 ring-white/10">
+                            {demoStageSummary.highlight}
+                          </span>
+                        </div>
+
+                        <div className="space-y-2 rounded-2xl bg-white/5 p-3">
+                          {dismissDemoStepCards.map((stepCard, index) => {
+                            const stepNumber = index + 1
+                            const isActive = stepNumber === demoStageSummary.stageIndex
+                            const isDone = stepNumber < demoStageSummary.stageIndex
+                            return (
+                              <div
+                                key={stepCard.title}
+                                className={`rounded-2xl px-4 py-3 text-sm leading-6 ${
+                                  isActive ? 'bg-sky-500/20 text-white' : isDone ? 'bg-emerald-500/10 text-emerald-200' : 'bg-white/5 text-slate-300'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <span className="font-medium">{stepCard.title}</span>
+                                  <span className="text-xs opacity-80">{stepCard.highlight}</span>
+                                </div>
+                                <p className="mt-1 text-xs leading-5 opacity-90">{stepCard.description}</p>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                     {!hasMeaningfulInfo && (
                       <>
                         <div className="rounded-3xl border border-sky-300/30 bg-sky-500/10 p-5 shadow-xl shadow-black/10">
-                          <p className="text-sm font-medium text-slate-100">开始咨询引导</p>
+                          <p className="text-sm font-medium text-slate-100">{isDismissDemo ? '演示开场说明' : '开始咨询引导'}</p>
                           <p className="mt-2 text-sm leading-6 text-slate-200">
-                            你可以先描述劳动关系、工资、辞退方式。输入后我会自动提炼关键信息并生成流程建议。
+                            {isDismissDemo
+                              ? '这是固定硬编码对话演示。你只要继续在聊天里输入，我会按陕西口径依次给出问诊、摘要、测算、文书和分流建议。'
+                              : '你可以先描述劳动关系、工资、辞退方式。输入后我会自动提炼关键信息并生成流程建议。'}
                           </p>
                         </div>
 
@@ -848,10 +1106,10 @@ ${summary}
                     )}
 
                     <div className="rounded-3xl border border-white/10 bg-white/5 p-5 shadow-xl shadow-black/10">
-                      <p className="text-sm font-medium text-slate-100">案件进度</p>
+                      <p className="text-sm font-medium text-slate-100">{isDismissDemo ? '演示进度' : '案件进度'}</p>
                       <div className="mt-4 flex items-center justify-between rounded-2xl bg-white/10 px-4 py-3">
                         <div>
-                          <p className="text-xs text-slate-300">已采集信息</p>
+                          <p className="text-xs text-slate-300">{isDismissDemo ? '演示信息' : '已采集信息'}</p>
                           <p className="mt-1 text-2xl font-semibold text-white">{collectedFieldCount}</p>
                         </div>
                         <div className="rounded-2xl bg-emerald-500/15 px-3 py-2 text-xs text-emerald-200 ring-1 ring-emerald-400/20">
@@ -861,9 +1119,23 @@ ${summary}
                       <p className="mt-4 text-sm leading-6 text-slate-300">{processStage.hint}</p>
                     </div>
 
+                    {isDemoMode && demoPreviewCards.length > 0 && (
+                      <div className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-5 shadow-xl shadow-black/10">
+                        <p className="text-sm font-medium text-slate-100">演示结果预览</p>
+                        <div className="space-y-2">
+                          {demoPreviewCards.map((card) => (
+                            <div key={card.title} className="rounded-2xl bg-white/5 px-4 py-3 text-sm leading-6 text-slate-300">
+                              <p className="font-medium text-slate-100">{card.title}</p>
+                              <p className="mt-1 text-xs leading-5">{card.value}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     <div className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-5 shadow-xl shadow-black/10">
                       <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm font-medium text-slate-100">会话总结</p>
+                        <p className="text-sm font-medium text-slate-100">{isDismissDemo ? '演示会话总结' : '会话总结'}</p>
                         <Button
                           onClick={copySidebarSummary}
                           variant="outline"
@@ -885,7 +1157,7 @@ ${summary}
                     </div>
 
                     <div className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-5 shadow-xl shadow-black/10">
-                      <p className="text-sm font-medium text-slate-100">案件时间线</p>
+                      <p className="text-sm font-medium text-slate-100">{isDismissDemo ? '演示时间线' : '案件时间线'}</p>
                       <div className="space-y-3">
                         {timelineItems.map((item, index) => (
                           <div key={item.title} className="flex gap-3">
@@ -907,7 +1179,7 @@ ${summary}
                     </div>
 
                     <div className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-5 shadow-xl shadow-black/10">
-                      <p className="text-sm font-medium text-slate-100">证据与材料待办</p>
+                      <p className="text-sm font-medium text-slate-100">{isDismissDemo ? '演示材料待办' : '证据与材料待办'}</p>
                       <div className="space-y-2">
                         {checklistItems.map((item) => (
                           <div
@@ -930,7 +1202,7 @@ ${summary}
 
                     <div className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-5 shadow-xl shadow-black/10">
                       <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm font-medium text-slate-100">仲裁材料包</p>
+                        <p className="text-sm font-medium text-slate-100">{isDismissDemo ? '演示材料包' : '仲裁材料包'}</p>
                         <Button
                           onClick={copyArbitrationPackage}
                           variant="outline"
@@ -947,7 +1219,7 @@ ${summary}
                     </div>
 
                     <div className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-5 shadow-xl shadow-black/10">
-                      <p className="text-sm font-medium text-slate-100">关键内容</p>
+                      <p className="text-sm font-medium text-slate-100">{isDismissDemo ? '演示关键内容' : '关键内容'}</p>
                       <div className="space-y-2 text-sm text-slate-300">
                         {keyFacts.map((item) => (
                           <div key={item} className="rounded-2xl bg-white/5 px-4 py-3 leading-6">
@@ -958,7 +1230,7 @@ ${summary}
                     </div>
 
                     <div className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-5 shadow-xl shadow-black/10">
-                      <p className="text-sm font-medium text-slate-100">流程状态指导</p>
+                      <p className="text-sm font-medium text-slate-100">{isDismissDemo ? '演示流程状态' : '流程状态指导'}</p>
                       <div className="space-y-2 text-sm text-slate-300 leading-6">
                         {desktopMissingItems.length > 0 ? (
                           desktopMissingItems.map((item) => (
@@ -975,7 +1247,7 @@ ${summary}
                     </div>
 
                     <div className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-5 shadow-xl shadow-black/10">
-                      <p className="text-sm font-medium text-slate-100">推荐动作</p>
+                      <p className="text-sm font-medium text-slate-100">{isDismissDemo ? '演示下一步' : '推荐动作'}</p>
                       <div className="space-y-2 text-sm text-slate-300 leading-6">
                         <div className="rounded-2xl bg-white/5 px-4 py-3">补齐证据后，先看赔偿测算。</div>
                         <div className="rounded-2xl bg-white/5 px-4 py-3">确认仲裁时效，尽量不要拖延。</div>
@@ -1005,7 +1277,7 @@ ${summary}
                 </div>
                 <div className="flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-700">
                   <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                  在线咨询
+                  {modeLabel}
                 </div>
               </header>
 
@@ -1104,13 +1376,13 @@ ${summary}
           </div>
           <div>
             <h1 className={`${isCompactLandscape ? 'text-sm' : 'text-base md:text-lg'} font-semibold text-slate-800`}>劳动维权助手</h1>
-            <p className="text-xs text-slate-500">西安地区 · 智能咨询</p>
+            <p className="text-xs text-slate-500">{modeDescription}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
             <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-1.5 animate-pulse" />
-            在线
+            {modeLabel}
           </span>
         </div>
       </header>
@@ -1121,6 +1393,28 @@ ${summary}
         className={`flex-1 overflow-y-auto overscroll-contain px-3 md:px-5 ${isCompactLandscape ? 'py-3' : 'py-5 md:py-6'} ${scrollPaddingClass}`}
       >
         <div className={`mx-auto ${isCompactLandscape ? 'space-y-3' : 'space-y-4'} ${contentMaxWidth}`}>
+          {isDemoMode && demoStageSummary && (
+            <div className="space-y-3 rounded-3xl border border-sky-300/30 bg-sky-500/10 p-4 shadow-xl shadow-black/10 lg:hidden">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-slate-900">甲方要求演示总览</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">当前展示到：{demoStageSummary.stepLabel}</p>
+                </div>
+                <span className="rounded-full bg-white/80 px-3 py-1 text-xs text-slate-700 ring-1 ring-sky-200">
+                  {demoStageSummary.highlight}
+                </span>
+              </div>
+              <div className="grid gap-2">
+                {demoPreviewCards.slice(0, 2).map((card) => (
+                  <div key={card.title} className="rounded-2xl bg-white/70 px-4 py-3 text-sm leading-6 text-slate-700">
+                    <p className="font-medium text-slate-900">{card.title}</p>
+                    <p className="mt-1 text-xs leading-5">{card.value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {renderConversation('mobile')}
         </div>
       </div>

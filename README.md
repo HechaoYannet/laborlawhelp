@@ -2,6 +2,12 @@
 
 面向劳动者与中小企业的劳动法辅助平台，覆盖案情提炼、赔偿测算、文书生成、风险分流与 HR 风险检查。
 
+## 演示入口（违法辞退 · 陕西口径）
+
+- 首页新增独立演示卡片，点击进入 `/consultation?demo=dismiss`。
+- 演示链路直接复用现有 AI 对话界面，采用前端固定脚本驱动，不调用真实后端接口。
+- 该模式会在聊天区内依次完成问诊、要素整理、测算、文书与分流建议展示。
+
 ## 1. 快速接手（5 分钟）
 
 ### 1.1 环境要求
@@ -66,7 +72,14 @@ src/
     (home)/page.tsx           # 导航首页
     consultation/page.tsx     # 劳动者咨询主流程
     hr-risk/page.tsx          # HR 风险检查流程
+    demo/*                    # 演示数据与脚本（供 consultation demo 模式复用）
     layout.tsx                # 全局布局与 Provider
+  features/
+    demo/
+      data/dismiss-demo-data.ts         # 演示固定数据
+      services/dismiss-chat-demo.ts      # consultation 聊天模式脚本
+      state/use-dismiss-demo-store.ts    # 旧版演示页状态（兼容保留）
+      components/dismiss-demo-shell.tsx  # 旧版演示页页面壳（兼容保留）
   hooks/
     use-case-store.tsx        # 案情主状态
     use-speech-recognition.ts # 语音识别封装
