@@ -9,6 +9,14 @@ DEPLOY_RUN_PORT=5000
 
 cd "${COZE_WORKSPACE_PATH}"
 
+pnpm_cmd() {
+    if command -v pnpm >/dev/null 2>&1; then
+        pnpm "$@"
+        return
+    fi
+    corepack pnpm "$@"
+}
+
 kill_port_if_listening() {
     local pids
     pids=$(ss -H -lntp 2>/dev/null | awk -v port="${DEPLOY_RUN_PORT}" '$4 ~ ":"port"$"' | grep -o 'pid=[0-9]*' | cut -d= -f2 | paste -sd' ' - || true)
@@ -31,4 +39,4 @@ echo "Clearing port ${PORT} before start."
 kill_port_if_listening
 echo "Starting HTTP service on port ${PORT} for dev..."
 
-PORT=$PORT pnpm tsx watch src/server.ts
+PORT=$PORT pnpm_cmd tsx watch src/server.ts

@@ -3,7 +3,18 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useSpeechRecognition } from '@/hooks/use-speech-recognition'
 import { Button } from '@/components/ui/button'
-import { Mic, MicOff, Send, User, Bot, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
+import {
+  Mic,
+  MicOff,
+  Send,
+  User,
+  Bot,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ArrowUpRight,
+  LoaderCircle,
+} from 'lucide-react'
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable'
 import type { CalculationResult } from '@/lib/types'
 import {
@@ -14,16 +25,68 @@ import {
 import {
   createCase,
   createSession,
+  listSessionMessages,
   streamSessionChat,
 } from '@/features/consultation/services/middleware-api'
-import { useCaseStore } from '@/hooks/use-case-store'
+import {
+  useCaseStore,
+  type SessionReference,
+} from '@/hooks/use-case-store'
 import type { PanelImperativeHandle } from 'react-resizable-panels'
+
+const MIDDLEWARE_CLIENT_CAPABILITIES = ['citations', 'tool-status', 'structured-final', 'trace-id']
+const CONSULTATION_SESSION_STORAGE_KEY = 'laborlawhelp.consultation.middleware-session'
+
+function normalizeReferences(value: unknown): SessionReference[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => {
+      const ref = item as Record<string, unknown>
+      return {
+        title: typeof ref.title === 'string' ? ref.title : undefined,
+        url: typeof ref.url === 'string' ? ref.url : undefined,
+        snippet: typeof ref.snippet === 'string' ? ref.snippet : undefined,
+      }
+    })
+}
+
+function shortenId(value: string | null | undefined) {
+  if (!value) return '未创建'
+  if (value.length <= 12) return value
+  return `${value.slice(0, 6)}...${value.slice(-4)}`
+}
+
+function humanizeToolName(toolName: string | null | undefined) {
+  if (!toolName) return '处理中'
+  if (toolName === 'skill') return 'Skill 流程控制'
+  if (toolName.startsWith('mcp__pkulaw__')) {
+    return `PKULaw · ${toolName.replace('mcp__pkulaw__', '')}`
+  }
+
+  return toolName.replaceAll('_', ' ')
+}
+
+function createAnonymousOwnerToken() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `anon-${crypto.randomUUID()}`
+  }
+
+  return `anon-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
+}
 
 export default function LaborRightsConsultation() {
   const middlewareModeEnabled = process.env.NEXT_PUBLIC_ENABLE_MIDDLEWARE_CHAT === 'true'
   const localFallbackEnabled =
     process.env.NEXT_PUBLIC_ENABLE_LOCAL_FALLBACK === 'true' ||
     process.env.NEXT_PUBLIC_ENABLE_LOCAL_RULE_FALLBACK === 'true'
+  const middlewarePolicyVersion =
+    process.env.NEXT_PUBLIC_MIDDLEWARE_POLICY_VERSION ||
+    process.env.NEXT_PUBLIC_POLICY_VERSION ||
+    undefined
 
   const [inputValue, setInputValue] = useState('')
   const [isThinking, setIsThinking] = useState(false)
@@ -43,6 +106,7 @@ export default function LaborRightsConsultation() {
   const {
     messages,
     addMessage,
+    replaceMessages,
     clearMessages,
     updateExtractedInfo,
     consultationInfo,
@@ -70,6 +134,16 @@ export default function LaborRightsConsultation() {
     stopListening,
     isSupported,
   } = useSpeechRecognition()
+
+  const persistMiddlewareSession = useCallback((payload: Record<string, unknown>) => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(CONSULTATION_SESSION_STORAGE_KEY, JSON.stringify(payload))
+  }, [])
+
+  const clearPersistedMiddlewareSession = useCallback(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.removeItem(CONSULTATION_SESSION_STORAGE_KEY)
+  }, [])
 
   // 自动滚动到底部
   useEffect(() => {
@@ -240,20 +314,164 @@ export default function LaborRightsConsultation() {
 
   // 初始化问候语
   useEffect(() => {
-    clearMessages()
-    resetExtractedInfo()
-    resetConsultationInfo()
-    resetSessionContext()
-    setSessionContext({ mode: middlewareModeEnabled ? 'middleware' : 'local' })
-    addMessage({ role: 'assistant', content: '请告诉我您的诉求' })
+    let cancelled = false
+
+    async function restoreSession() {
+      clearMessages()
+      resetExtractedInfo()
+      resetConsultationInfo()
+      resetSessionContext()
+
+      if (!middlewareModeEnabled || typeof window === 'undefined') {
+        setSessionContext({ mode: middlewareModeEnabled ? 'middleware' : 'local' })
+        addMessage({ role: 'assistant', content: '请告诉我您的诉求' })
+        return
+      }
+
+      const raw = window.localStorage.getItem(CONSULTATION_SESSION_STORAGE_KEY)
+      if (!raw) {
+        setSessionContext({
+          mode: 'middleware',
+          anonymousToken: createAnonymousOwnerToken(),
+        })
+        addMessage({ role: 'assistant', content: '请告诉我您的诉求' })
+        return
+      }
+
+      try {
+        const parsed = JSON.parse(raw) as Record<string, unknown>
+        const restoredConsultationInfo =
+          parsed.consultationInfo && typeof parsed.consultationInfo === 'object'
+            ? parsed.consultationInfo
+            : null
+        const restoredSessionContext =
+          parsed.sessionContext && typeof parsed.sessionContext === 'object'
+            ? parsed.sessionContext as Record<string, unknown>
+            : null
+
+        if (restoredConsultationInfo) {
+          const nextInfo = mergeConsultationInfo(
+            {
+              evidence: [],
+            },
+            restoredConsultationInfo as Parameters<typeof mergeConsultationInfo>[1],
+          )
+          setConsultationInfo(nextInfo)
+          updateExtractedInfo(consultationInfoToCaseProfile(nextInfo))
+        }
+
+        if (!restoredSessionContext) {
+          setSessionContext({
+            mode: 'middleware',
+            anonymousToken: createAnonymousOwnerToken(),
+          })
+          addMessage({ role: 'assistant', content: '请告诉我您的诉求' })
+          return
+        }
+
+        const restoredCaseId =
+          typeof restoredSessionContext.caseId === 'string' ? restoredSessionContext.caseId : null
+        const restoredSessionId =
+          typeof restoredSessionContext.sessionId === 'string' ? restoredSessionContext.sessionId : null
+        const restoredAnonymousToken =
+          typeof restoredSessionContext.anonymousToken === 'string'
+            ? restoredSessionContext.anonymousToken
+            : createAnonymousOwnerToken()
+        const restoredTraceId =
+          typeof restoredSessionContext.traceId === 'string' ? restoredSessionContext.traceId : null
+        const restoredSeq =
+          typeof restoredSessionContext.streamSeq === 'number' ? restoredSessionContext.streamSeq : 0
+
+        setSessionContext({
+          mode: 'middleware',
+          status: 'active',
+          isStreaming: false,
+          caseId: restoredCaseId,
+          sessionId: restoredSessionId,
+          anonymousToken: restoredAnonymousToken,
+          sessionStatus: 'active',
+          traceId: restoredTraceId,
+          streamSeq: restoredSeq,
+        })
+
+        if (!restoredSessionId || !restoredAnonymousToken) {
+          addMessage({ role: 'assistant', content: '请告诉我您的诉求' })
+          return
+        }
+
+        const history = await listSessionMessages(restoredSessionId, restoredAnonymousToken)
+        if (cancelled) return
+
+        if (history.length > 0) {
+          replaceMessages(
+            history.map((message) => ({
+              id: message.id,
+              role: message.role === 'user' ? 'user' : 'assistant',
+              content: message.content,
+              timestamp: message.createdAt ? Date.parse(message.createdAt) || Date.now() : Date.now(),
+            })),
+          )
+          return
+        }
+
+        addMessage({ role: 'assistant', content: '请告诉我您的诉求' })
+      } catch (error) {
+        console.error('Failed to restore middleware session:', error)
+        clearPersistedMiddlewareSession()
+        setSessionContext({
+          mode: 'middleware',
+          anonymousToken: createAnonymousOwnerToken(),
+        })
+        addMessage({ role: 'assistant', content: '请告诉我您的诉求' })
+      }
+    }
+
+    restoreSession()
+
+    return () => {
+      cancelled = true
+    }
   }, [
     addMessage,
     clearMessages,
+    clearPersistedMiddlewareSession,
     middlewareModeEnabled,
+    replaceMessages,
     resetExtractedInfo,
     resetConsultationInfo,
     resetSessionContext,
+    setConsultationInfo,
     setSessionContext,
+    updateExtractedInfo,
+  ])
+
+  useEffect(() => {
+    if (!middlewareModeEnabled) return
+    if (!sessionContext.caseId && !sessionContext.sessionId && !sessionContext.anonymousToken) {
+      clearPersistedMiddlewareSession()
+      return
+    }
+
+    persistMiddlewareSession({
+      consultationInfo,
+      sessionContext: {
+        caseId: sessionContext.caseId,
+        sessionId: sessionContext.sessionId,
+        anonymousToken: sessionContext.anonymousToken,
+        traceId: sessionContext.traceId,
+        streamSeq: sessionContext.streamSeq,
+      },
+    })
+  }, [
+    clearPersistedMiddlewareSession,
+    consultationInfo,
+    middlewareModeEnabled,
+    persistMiddlewareSession,
+    sessionContext.anonymousToken,
+    sessionContext.caseId,
+    sessionContext.sessionId,
+    sessionContext.streamSeq,
+    sessionContext.traceId,
   ])
 
   const applyConsultationExtraction = (userMessage: string) => {
@@ -270,10 +488,15 @@ export default function LaborRightsConsultation() {
     let sessionId = sessionContext.sessionId
     let anonymousToken = sessionContext.anonymousToken
 
+    if (!anonymousToken) {
+      anonymousToken = createAnonymousOwnerToken()
+    }
+
     setSessionContext({
       status: 'initializing',
       isStreaming: false,
       mode: 'middleware',
+      anonymousToken,
       lastError: null,
     })
 
@@ -281,6 +504,10 @@ export default function LaborRightsConsultation() {
       const caseResult = await createCase(anonymousToken)
       caseId = caseResult.caseId
       anonymousToken = caseResult.anonymousToken ?? anonymousToken
+    }
+
+    if (!caseId) {
+      throw new Error('中间件会话初始化失败：缺少案件标识')
     }
 
     if (!sessionId) {
@@ -292,6 +519,7 @@ export default function LaborRightsConsultation() {
     setSessionContext({
       caseId,
       sessionId,
+      sessionStatus: 'active',
       anonymousToken,
       status: 'active',
       isStreaming: false,
@@ -306,9 +534,12 @@ export default function LaborRightsConsultation() {
     applyConsultationExtraction(userMessage)
 
     const { sessionId, anonymousToken } = await ensureMiddlewareSession()
+    const locale = typeof navigator !== 'undefined' && navigator.language ? navigator.language : 'zh-CN'
     let streamErrorCode = ''
     let streamErrorMessage = ''
     let streamErrorRetryable = false
+    let streamTraceId = ''
+    let finalSummary = ''
 
     streamedResponseRef.current = ''
     setDisplayText('')
@@ -316,8 +547,10 @@ export default function LaborRightsConsultation() {
       status: 'streaming',
       isStreaming: true,
       currentMessageId: null,
+      traceId: null,
       lastToolName: null,
       lastToolResultSummary: null,
+      toolEvents: [],
       finalPayload: null,
       lastError: null,
     })
@@ -327,67 +560,126 @@ export default function LaborRightsConsultation() {
       {
         message: userMessage,
         client_seq: sessionContext.streamSeq,
+        locale,
+        policy_version: middlewarePolicyVersion,
+        client_capabilities: [...MIDDLEWARE_CLIENT_CAPABILITIES],
       },
       {
         onMessageStart: (payload) => {
           const messageId = typeof payload.message_id === 'string' ? payload.message_id : null
+          const traceId = typeof payload.trace_id === 'string' ? payload.trace_id : null
           streamedResponseRef.current = ''
           setDisplayText('')
-          setSessionContext({ currentMessageId: messageId })
+          if (traceId) {
+            streamTraceId = traceId
+          }
+          setSessionContext({
+            currentMessageId: messageId,
+            traceId,
+          })
         },
         onContentDelta: (delta, seq) => {
           if (!delta) return
 
           streamedResponseRef.current += delta
           setDisplayText(streamedResponseRef.current)
-          if (typeof seq === 'number') {
-            setSessionContext({ streamSeq: seq })
-          }
+          setSessionContext((prev) => ({
+            streamSeq: typeof seq === 'number' ? seq : prev.streamSeq,
+          }))
         },
         onToolCall: (payload) => {
           const toolName = typeof payload.tool_name === 'string' ? payload.tool_name : '处理中'
-          setSessionContext({
+          const traceId = typeof payload.trace_id === 'string' ? payload.trace_id : undefined
+          if (traceId) {
+            streamTraceId = traceId
+          }
+          setSessionContext((prev) => ({
+            traceId: traceId ?? prev.traceId,
             lastToolName: toolName,
-            lastToolResultSummary: null,
-          })
+            lastToolResultSummary: '等待工具结果',
+            toolEvents: [
+              ...prev.toolEvents,
+              {
+                toolName,
+                status: 'started',
+                summary: '工具调用中',
+                references: [],
+                traceId,
+                createdAt: Date.now(),
+              },
+            ],
+          }))
         },
         onToolResult: (payload) => {
           const toolName = typeof payload.tool_name === 'string' ? payload.tool_name : null
           const resultSummary =
             typeof payload.result_summary === 'string' ? payload.result_summary : '工具调用已完成'
+          const references = normalizeReferences(payload.references)
+          const traceId = typeof payload.trace_id === 'string' ? payload.trace_id : undefined
+          if (traceId) {
+            streamTraceId = traceId
+          }
 
-          setSessionContext({
-            lastToolName: toolName,
-            lastToolResultSummary: resultSummary,
+          setSessionContext((prev) => {
+            const nextToolEvents = [...prev.toolEvents]
+            const reverseIndex = [...nextToolEvents]
+              .reverse()
+              .findIndex((event) => event.toolName === toolName && event.status === 'started')
+
+            if (reverseIndex >= 0) {
+              const targetIndex = nextToolEvents.length - reverseIndex - 1
+              nextToolEvents[targetIndex] = {
+                ...nextToolEvents[targetIndex],
+                status: 'completed',
+                summary: resultSummary,
+                references,
+                traceId: traceId ?? nextToolEvents[targetIndex].traceId,
+              }
+            } else if (toolName) {
+              nextToolEvents.push({
+                toolName,
+                status: 'completed',
+                summary: resultSummary,
+                references,
+                traceId,
+                createdAt: Date.now(),
+              })
+            }
+
+            return {
+              traceId: traceId ?? prev.traceId,
+              lastToolName: toolName,
+              lastToolResultSummary: resultSummary,
+              toolEvents: nextToolEvents,
+            }
           })
         },
         onFinal: (payload) => {
           const summary = typeof payload.summary === 'string' ? payload.summary : undefined
+          const finishReason = typeof payload.finish_reason === 'string' ? payload.finish_reason : undefined
           const ruleVersion = typeof payload.rule_version === 'string' ? payload.rule_version : undefined
-          const references = Array.isArray(payload.references)
-            ? payload.references
-                .filter((item) => item && typeof item === 'object')
-                .map((item) => {
-                  const ref = item as Record<string, unknown>
-                  return {
-                    title: typeof ref.title === 'string' ? ref.title : undefined,
-                    url: typeof ref.url === 'string' ? ref.url : undefined,
-                    snippet: typeof ref.snippet === 'string' ? ref.snippet : undefined,
-                  }
-                })
-            : []
+          const references = normalizeReferences(payload.references)
+          const traceId = typeof payload.trace_id === 'string' ? payload.trace_id : undefined
+          if (traceId) {
+            streamTraceId = traceId
+          }
+          finalSummary = summary || ''
 
-          setSessionContext({
+          setSessionContext((prev) => ({
+            traceId: traceId ?? prev.traceId,
             finalPayload: {
               summary,
               references,
               ruleVersion,
+              finishReason,
+              traceId: traceId ?? prev.traceId ?? undefined,
             },
-          })
+          }))
         },
         onMessageEnd: () => {
           setSessionContext({
             status: 'active',
+            sessionStatus: 'active',
             isStreaming: false,
           })
         },
@@ -400,6 +692,9 @@ export default function LaborRightsConsultation() {
           streamErrorMessage =
             typeof payload.message === 'string' ? payload.message : '中间件流式会话失败'
           streamErrorRetryable = Boolean(payload.retryable)
+          if (typeof payload.trace_id === 'string') {
+            streamTraceId = payload.trace_id
+          }
         },
       },
       anonymousToken,
@@ -414,18 +709,21 @@ export default function LaborRightsConsultation() {
       setSessionContext({
         status: 'error',
         isStreaming: false,
+        traceId: streamTraceId || sessionContext.traceId,
         lastError: errorInfo,
       })
       throw new Error(errorInfo.message)
     }
 
-    const finalText = streamedResponseRef.current.trim() || '抱歉，本次未生成有效回复，请重试。'
+    const finalText = streamedResponseRef.current.trim() || finalSummary || '抱歉，本次未生成有效回复，请重试。'
     addMessage({ role: 'assistant', content: finalText })
     setDisplayText('')
     setIsThinking(false)
     setSessionContext({
       status: 'active',
+      sessionStatus: 'active',
       isStreaming: false,
+      traceId: streamTraceId || sessionContext.traceId,
       lastError: null,
     })
   }
@@ -696,8 +994,23 @@ ${summary}
       '案件摘要',
       conversationSummary,
       '',
+      '会话状态',
+      ...sessionFacts.map((item) => `- ${item}`),
+      '',
       '关键内容',
       ...keyFacts.map((item) => `- ${item}`),
+      '',
+      '工具执行',
+      ...(sessionContext.toolEvents.length > 0
+        ? sessionContext.toolEvents.map(
+            (item) => `- ${humanizeToolName(item.toolName)}：${item.status === 'completed' ? item.summary || '已完成' : '处理中'}`,
+          )
+        : ['- 暂无工具调用记录']),
+      '',
+      '法律依据',
+      ...(verifiedReferences.length > 0
+        ? verifiedReferences.map((item) => `- ${item.title || '未命名引用'}${item.url ? ` (${item.url})` : ''}`)
+        : ['- 暂无已核验引用']),
       '',
       '案件时间线',
       ...timelineItems.map((item) => `- ${item.title}：${item.detail}`),
@@ -722,11 +1035,19 @@ ${summary}
       '仲裁材料包',
       `案件状态：${processStage.label}`,
       '',
+      '会话信息',
+      ...sessionFacts.map((item) => `- ${item}`),
+      '',
       '案件摘要',
       conversationSummary,
       '',
       '关键事实',
       ...keyFacts.map((item) => `- ${item}`),
+      '',
+      '法律依据',
+      ...(verifiedReferences.length > 0
+        ? verifiedReferences.map((item) => `- ${item.title || '未命名引用'}${item.snippet ? `：${item.snippet}` : ''}${item.url ? ` (${item.url})` : ''}`)
+        : ['- 当前轮次暂无已核验引用']),
       '',
       '时间线',
       ...timelineItems.map((item) => `- ${item.title}：${item.detail}`),
@@ -868,6 +1189,18 @@ ${summary}
 
   const latestAssistantMessage = [...messages].reverse().find((message) => message.role === 'assistant')
   const latestUserMessage = [...messages].reverse().find((message) => message.role === 'user')
+  const latestToolEvent = sessionContext.toolEvents[sessionContext.toolEvents.length - 1] ?? null
+  const verifiedReferences = sessionContext.finalPayload?.references ?? []
+  const middlewareStatusLabel =
+    sessionContext.status === 'streaming'
+      ? '流式处理中'
+      : sessionContext.status === 'initializing'
+        ? '会话初始化'
+        : sessionContext.status === 'error'
+          ? '请求异常'
+          : sessionContext.mode === 'middleware'
+            ? '中间件会话'
+            : '本地回退'
 
   const summarizeText = (text: string) => {
     const compactText = text.replace(/\s+/g, ' ').trim()
@@ -915,9 +1248,18 @@ ${summary}
       : '辞退方式未补充',
     consultationInfo.evidence.length > 0 ? `证据：${consultationInfo.evidence.join('、')}` : '证据未补充',
     sessionContext.finalPayload?.ruleVersion ? `规则版本：${sessionContext.finalPayload.ruleVersion}` : '规则版本待返回',
-    sessionContext.finalPayload?.references?.length
-      ? `引用来源：${sessionContext.finalPayload.references.length} 条`
+    verifiedReferences.length
+      ? `引用来源：${verifiedReferences.length} 条`
       : '引用来源待返回',
+  ]
+
+  const sessionFacts = [
+    `运行模式：${sessionContext.mode === 'middleware' ? '中间件 + OpenHarness' : '本地回退'}`,
+    `当前状态：${middlewareStatusLabel}`,
+    `Case ID：${shortenId(sessionContext.caseId)}`,
+    `Session ID：${shortenId(sessionContext.sessionId)}`,
+    `Trace ID：${shortenId(sessionContext.traceId)}`,
+    `流序号：${sessionContext.streamSeq || 0}`,
   ]
 
   const timelineItems = [
@@ -1096,6 +1438,57 @@ ${summary}
                     </div>
 
                     <div className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-5 shadow-xl shadow-black/10">
+                      <p className="text-sm font-medium text-slate-100">中间件会话</p>
+                      <div className="grid gap-2 text-sm text-slate-300">
+                        {sessionFacts.map((item) => (
+                          <div key={item} className="rounded-2xl bg-white/5 px-4 py-3 leading-6">
+                            {item}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-5 shadow-xl shadow-black/10">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-medium text-slate-100">工具执行轨迹</p>
+                        {latestToolEvent && (
+                          <div className="rounded-full bg-white/10 px-3 py-1 text-[11px] text-slate-200">
+                            最近：{humanizeToolName(latestToolEvent.toolName)}
+                          </div>
+                        )}
+                      </div>
+                      {sessionContext.toolEvents.length > 0 ? (
+                        <div className="space-y-2">
+                          {sessionContext.toolEvents.map((item) => (
+                            <div key={`${item.createdAt}-${item.toolName}`} className="rounded-2xl bg-white/5 px-4 py-3">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-slate-100">{humanizeToolName(item.toolName)}</p>
+                                  <p className="mt-1 text-xs leading-6 text-slate-300">
+                                    {item.status === 'completed' ? item.summary || '工具调用已完成' : '等待工具返回结果'}
+                                  </p>
+                                </div>
+                                <div
+                                  className={`shrink-0 rounded-full px-3 py-1 text-[11px] ${
+                                    item.status === 'completed'
+                                      ? 'bg-emerald-500/15 text-emerald-200'
+                                      : 'bg-amber-500/15 text-amber-100'
+                                  }`}
+                                >
+                                  {item.status === 'completed' ? '已完成' : '处理中'}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="rounded-2xl bg-white/5 px-4 py-3 text-sm leading-6 text-slate-300">
+                          当前轮次尚未返回工具调用记录。若触发 PKULaw 检索，这里会展示技能与检索轨迹。
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-5 shadow-xl shadow-black/10">
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-sm font-medium text-slate-100">会话总结</p>
                         <Button
@@ -1116,6 +1509,40 @@ ${summary}
                       <div className="rounded-2xl bg-black/10 px-4 py-3 text-xs leading-6 text-slate-300">
                         最新输出：{latestAssistantMessage ? summarizeText(latestAssistantMessage.content) : '等待系统回复。'}
                       </div>
+                    </div>
+
+                    <div className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-5 shadow-xl shadow-black/10">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-medium text-slate-100">法律依据引用</p>
+                        <div className="rounded-full bg-white/10 px-3 py-1 text-[11px] text-slate-200">
+                          {verifiedReferences.length > 0 ? `${verifiedReferences.length} 条已核验` : '等待返回'}
+                        </div>
+                      </div>
+                      {verifiedReferences.length > 0 ? (
+                        <div className="space-y-2">
+                          {verifiedReferences.map((item, index) => (
+                            <div key={`${item.title || 'reference'}-${index}`} className="rounded-2xl bg-white/5 px-4 py-3">
+                              <p className="text-sm font-medium text-slate-100">{item.title || '未命名引用'}</p>
+                              {item.snippet && <p className="mt-1 text-xs leading-6 text-slate-300">{item.snippet}</p>}
+                              {item.url && (
+                                <a
+                                  href={item.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="mt-2 inline-flex items-center gap-1 text-xs text-sky-300 hover:text-sky-200"
+                                >
+                                  查看原文
+                                  <ArrowUpRight className="h-3.5 w-3.5" />
+                                </a>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="rounded-2xl bg-white/5 px-4 py-3 text-sm leading-6 text-slate-300">
+                          当前还没有已核验的法规或案例引用。完成 PKULaw 检索后，这里会展示标题、摘要和跳转链接。
+                        </div>
+                      )}
                     </div>
 
                     <div className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-5 shadow-xl shadow-black/10">
@@ -1355,6 +1782,51 @@ ${summary}
         className={`flex-1 overflow-y-auto overscroll-contain px-3 md:px-5 ${isCompactLandscape ? 'py-3' : 'py-5 md:py-6'} ${scrollPaddingClass}`}
       >
         <div className={`mx-auto ${isCompactLandscape ? 'space-y-3' : 'space-y-4'} ${contentMaxWidth}`}>
+          <div className="grid gap-3">
+            <div className="rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs text-slate-500">当前会话</p>
+                  <p className="mt-1 text-sm font-medium text-slate-900">{middlewareStatusLabel}</p>
+                </div>
+                {sessionContext.status === 'streaming' ? (
+                  <LoaderCircle className="h-4 w-4 animate-spin text-blue-600" />
+                ) : (
+                  <div className="rounded-full bg-slate-100 px-3 py-1 text-[11px] text-slate-600">
+                    {sessionContext.mode === 'middleware' ? 'OpenHarness' : 'Local'}
+                  </div>
+                )}
+              </div>
+              <p className="mt-2 text-xs leading-5 text-slate-500">
+                Session {shortenId(sessionContext.sessionId)} · Trace {shortenId(sessionContext.traceId)}
+              </p>
+            </div>
+
+            {(latestToolEvent || verifiedReferences.length > 0 || sessionContext.finalPayload?.summary) && (
+              <div className="rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 shadow-sm">
+                <p className="text-xs text-slate-500">本轮结果</p>
+                <p className="mt-1 text-sm leading-6 text-slate-800">
+                  {sessionContext.finalPayload?.summary || sessionContext.lastToolResultSummary || '等待工具或最终摘要返回。'}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-600">
+                  {latestToolEvent && (
+                    <span className="rounded-full bg-slate-100 px-3 py-1">
+                      {humanizeToolName(latestToolEvent.toolName)} · {latestToolEvent.status === 'completed' ? '已完成' : '处理中'}
+                    </span>
+                  )}
+                  <span className="rounded-full bg-slate-100 px-3 py-1">
+                    引用 {verifiedReferences.length} 条
+                  </span>
+                  {sessionContext.finalPayload?.ruleVersion && (
+                    <span className="rounded-full bg-slate-100 px-3 py-1">
+                      {sessionContext.finalPayload.ruleVersion}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
           {renderConversation('mobile')}
         </div>
       </div>

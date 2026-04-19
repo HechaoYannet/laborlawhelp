@@ -8,38 +8,39 @@
 
 - Node.js 20 LTS（见 `.nvmrc`）
 - pnpm >= 9（必须，已启用 `only-allow pnpm`）
+- 若系统里没有全局 `pnpm`，可直接使用 `corepack pnpm`
 - 建议操作系统：Windows / WSL / Linux / macOS
 
 ### 1.2 初始化
 
 ```bash
-pnpm install
+corepack pnpm install
 cp .env.example .env.local
 ```
 
 ### 1.3 启动与验证
 
 ```bash
-pnpm dev
+corepack pnpm dev
 ```
 
 - 默认地址：`http://localhost:5000`
 - 如需生产验证：
 
 ```bash
-pnpm build
-pnpm start
+corepack pnpm build
+corepack pnpm start
 ```
 
 ## 2. 命令坐标
 
 ### 2.1 标准命令（默认）
 
-- `pnpm dev`：开发模式（入口 `scripts/dev.mjs` -> `src/server.ts`）
-- `pnpm build`：构建 Next + 打包 Node server
-- `pnpm start`：运行生产包（`dist/server.js`）
-- `pnpm lint`：ESLint
-- `pnpm ts-check`：TypeScript 检查
+- `pnpm dev` / `corepack pnpm dev`：开发模式（入口 `scripts/dev.mjs` -> `src/server.ts`）
+- `pnpm build` / `corepack pnpm build`：构建 Next + 打包 Node server
+- `pnpm start` / `corepack pnpm start`：运行生产包（`dist/server.js`）
+- `pnpm lint` / `corepack pnpm lint`：ESLint
+- `pnpm ts-check` / `corepack pnpm ts-check`：TypeScript 检查
 
 ### 2.2 兼容命令（迁移期）
 
@@ -51,6 +52,7 @@ pnpm start
 
 ## 3. 关键文档索引
 
+- `docs/quick-start.md`：从环境配置到前后端手动跑通一轮咨询流程的最短指南
 - `docs/architecture.md`：系统分层、核心流程、边界与技术债
 - `docs/coze-legacy-and-env.md`：遗产兼容策略与环境变量规范
 - `docs/plan.md`：项目坐标系、阶段目标、里程碑、交付标准
@@ -118,8 +120,8 @@ scripts/
 
 ## 7. 交接清单（建议逐项勾选）
 
-1. `pnpm install && pnpm dev` 可在本机正常启动。
-2. `pnpm build` 无报错。
+1. `corepack pnpm install && corepack pnpm dev` 可在本机正常启动。
+2. `corepack pnpm build` 无报错。
 3. `.env.example` 与部署环境变量一致。
 4. 阅读 `docs/architecture.md` 与 `docs/plan.md` 后，可独立说明系统主流程。
 5. AI 协作入口文件 `AGENTS.md`、`CLAUDE.md` 已同步到最新流程。

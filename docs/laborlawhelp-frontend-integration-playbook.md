@@ -8,6 +8,8 @@
 - 联调开发（前后端协同）
 - 测试同学（接口与流式验收）
 
+如果你当前目标是“先把环境配起来并手动跑通一轮流程”，优先看 [docs/quick-start.md](./quick-start.md)。
+
 ---
 
 ## 2. 现状与目标
@@ -16,11 +18,12 @@
 当前咨询链路已进入“中间件主路径 + 本地回退”阶段：
 - 已支持 `create case -> create session -> chat SSE` 的主链路。
 - 已接入 `message_start/content_delta/tool_call/tool_result/final/message_end/error` 事件消费。
+- 已支持前端本地自举匿名 token，并在刷新后恢复匿名 session 与消息历史。
 - 本地规则模块仍保留，用于回退兜底，不作为默认主路径。
 
 当前仍需收口项：
 - 继续将页面内网络/事件映射逻辑下沉到 feature API 层。
-- 右侧摘要区优先消费 `final` 结构化载荷并完善引用展示。
+- 将页面内会话恢复与 SSE 映射进一步下沉到 feature / adapter 层。
 - 错误码映射与重试策略按 `docs/api/error-codes.md` 进一步细化。
 
 ## 2.2 迁移目标
@@ -44,7 +47,8 @@
 关键接口顺序：
 1. `POST /api/v1/cases`
 2. `POST /api/v1/cases/{case_id}/sessions`
-3. `POST /api/v1/sessions/{session_id}/chat`（SSE）
+3. `POST /api/v1/sessions/{session_id}/chat/stream`（SSE）
+4. `GET /api/v1/sessions/{session_id}/messages`（刷新恢复）
 
 核心 SSE 事件：
 - `message_start`
@@ -73,6 +77,7 @@ interface BackendSessionState {
   session_id?: string
   session_status?: 'active' | 'ended' | 'expired'
   current_message_id?: string
+  trace_id?: string
   is_streaming: boolean
   last_seq: number
   last_error?: {
@@ -84,6 +89,7 @@ interface BackendSessionState {
     summary?: string
     references?: Array<{ title?: string; url?: string; snippet?: string }>
     rule_version?: string
+    finish_reason?: string
   }
 }
 ```
@@ -92,10 +98,12 @@ interface BackendSessionState {
 ```ts
 setBackendOwner(...)
 setCaseSession(caseId: string, sessionId: string)
+ensureAnonymousOwnerToken(...)
 startStreaming(messageId: string)
 appendDelta(seq: number, delta: string)
 setToolStatus(...)
 setFinalPayload(...)
+restoreMessages(...)
 endStreaming()
 setStreamError(...)
 resetBackendSession()
@@ -147,6 +155,7 @@ NEXT_PUBLIC_MIDDLEND_BASE_URL=http://localhost:8000
 
 ## 6.2 通用请求封装
 建议提供：
+- 首次进入页面时自动生成匿名 token（如 `anon-<uuid>`）并持久化
 - 自动附加 `X-Anonymous-Token` 或 `Authorization`
 - 统一错误解析（映射到 `code/message/retryable`）
 - 自动透传 `X-Trace-Id`（如存在）
@@ -177,7 +186,7 @@ export async function streamChat(
     onEvent: (event: string, data: any) => void
   }
 ) {
-  const res = await fetch(`${args.baseUrl}/api/v1/sessions/${args.sessionId}/chat`, {
+  const res = await fetch(`${args.baseUrl}/api/v1/sessions/${args.sessionId}/chat/stream`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -239,6 +248,7 @@ export async function streamChat(
 3. 若无 `session_id`：创建 session。
 4. 发送 chat stream 请求。
 5. 按事件更新 store 与 UI。
+6. 页面刷新时优先通过 `session_id + anonymous_token` 调 `GET /sessions/{session_id}/messages` 恢复会话。
 
 ## 8.3 事件到 UI 的映射建议
 - `message_start`：创建 assistant 占位消息。
@@ -248,6 +258,11 @@ export async function streamChat(
 - `final`：更新右侧会话总结、引用信息、规则版本。
 - `message_end`：结束 loading，允许下次输入。
 - `error`：展示错误提示与重试按钮。
+
+## 8.4 匿名 owner 策略
+- 当前后端匿名模式要求 `X-Anonymous-Token`。
+- 前端首进页面时应本地生成匿名 token，而不是等待后端签发。
+- token、`case_id`、`session_id`、`stream_seq` 应一并持久化，避免刷新后丢失 owner 归属。
 
 ---
 

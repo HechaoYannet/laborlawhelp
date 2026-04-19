@@ -17,6 +17,7 @@
 - `NEXT_PUBLIC_ENABLE_MIDDLEWARE_CHAT`
 - `NEXT_PUBLIC_MIDDLEND_BASE_URL`
 - `NEXT_PUBLIC_ENABLE_LOCAL_FALLBACK`
+- `NEXT_PUBLIC_MIDDLEWARE_POLICY_VERSION`
 
 ### 2.2 服务端变量（不可暴露）
 
@@ -37,9 +38,10 @@
 ## 3. 执行策略
 
 1. 默认仅使用 `pnpm dev/build/start`。
-2. 兼容命令仅在外部历史环境确有需求时使用。
-3. 新增脚本或模块时，不再引入新的 `COZE_*` 变量依赖。
-4. 文档示例统一以标准变量命名展示。
+2. 若环境中没有全局 `pnpm`，直接使用 `corepack pnpm dev/build/start`。
+3. 兼容命令仅在外部历史环境确有需求时使用。
+4. 新增脚本或模块时，不再引入新的 `COZE_*` 变量依赖。
+5. 文档示例统一以标准变量命名展示。
 
 ## 4. 清理优先级
 

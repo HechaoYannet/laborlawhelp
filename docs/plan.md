@@ -67,11 +67,13 @@
 - 范围：
   - 对齐 `docs/middlend-plan.md` 的 API 顺序：先 cases/sessions，再 chat SSE，再 summary/document/triage。
   - 前端状态层引入 `case_id`、`session_id`、会话状态、流序号、错误态。
+  - 匿名模式下由前端自举 `X-Anonymous-Token`，而不是依赖后端首呼签发。
   - 聊天通信固定为 POST + `text/event-stream` + ReadableStream 解析。
   - 认证采用阶段化：一期游客模式，二期 JWT 强制认证。
 - 验收：
   - API 契约文档与实现计划一致，无冲突字段。
-  - `src/hooks/use-case-store.tsx` 的状态模型可容纳 case/session 双层。
+  - `src/hooks/use-case-store.tsx` 的状态模型可容纳 case/session 双层、trace_id、tool events 与 final payload。
+  - 页面刷新后可基于匿名 token 恢复既有 session 与消息历史。
 
 ### M3 咨询主链路后端化（进行中）
 
@@ -82,6 +84,7 @@
   - 本地 `src/lib/calculation.ts`、`src/lib/case-triage.ts` 仅保留回退开关路径（默认关闭）。
 - 验收：
   - 咨询主流程默认不再调用本地规则计算。
+  - 前端可展示中间件返回的工具轨迹、结构化摘要、引用来源与规则版本。
   - 中断重连后内容顺序与服务端 seq 一致。
 
 ### M4 质量与一致性基线（未开始）
