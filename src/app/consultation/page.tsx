@@ -75,7 +75,14 @@ function createAnonymousOwnerToken() {
     return `anon-${crypto.randomUUID()}`
   }
 
-  return `anon-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16)
+    crypto.getRandomValues(bytes)
+    const token = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+    return `anon-${token}`
+  }
+
+  return `anon-insecure-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
 }
 
 export default function LaborRightsConsultation() {
