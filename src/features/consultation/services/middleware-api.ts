@@ -24,10 +24,20 @@ export interface MiddlewareCreateSessionResult {
   anonymousToken?: string | null
 }
 
+export interface MiddlewareMessage {
+  id: string
+  role: string
+  content: string
+  createdAt?: string
+}
+
 export interface MiddlewareChatRequest {
   message: string
   attachments?: MiddlewareAttachment[]
   client_seq?: number
+  locale?: string
+  policy_version?: string
+  client_capabilities?: string[]
 }
 
 export interface MiddlewareChatHandlers {
@@ -70,15 +80,16 @@ function extractId(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null
 }
 
-async function readJsonSafely(response: Response): Promise<Record<string, unknown>> {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+async function readJsonSafely(response: Response): Promise<unknown> {
   const text = await response.text()
   if (!text) return {}
 
   try {
-    const parsed = JSON.parse(text)
-    if (parsed && typeof parsed === 'object') {
-      return parsed as Record<string, unknown>
-    }
+    return JSON.parse(text) as unknown
   } catch {
     // Keep empty object as a safe fallback when backend returns non-JSON text.
   }
@@ -86,10 +97,10 @@ async function readJsonSafely(response: Response): Promise<Record<string, unknow
   return {}
 }
 
-async function assertOk(response: Response, action: string): Promise<Record<string, unknown>> {
+async function assertOk(response: Response, action: string): Promise<unknown> {
   const payload = await readJsonSafely(response)
   if (!response.ok) {
-    const message = typeof payload.message === 'string' ? payload.message : `${action}失败`
+    const message = isRecord(payload) && typeof payload.message === 'string' ? payload.message : `${action}失败`
     throw new Error(message)
   }
 
@@ -104,6 +115,9 @@ export async function createCase(anonymousToken?: string | null): Promise<Middle
   })
 
   const payload = await assertOk(response, '创建案件')
+  if (!isRecord(payload)) {
+    throw new Error('创建案件失败：返回数据格式不正确')
+  }
   const caseId =
     extractId(payload.case_id) ||
     extractId(payload.caseId) ||
@@ -127,6 +141,9 @@ export async function createSession(caseId: string, anonymousToken?: string | nu
   })
 
   const payload = await assertOk(response, '创建会话')
+  if (!isRecord(payload)) {
+    throw new Error('创建会话失败：返回数据格式不正确')
+  }
   const sessionId =
     extractId(payload.session_id) ||
     extractId(payload.sessionId) ||
@@ -140,6 +157,34 @@ export async function createSession(caseId: string, anonymousToken?: string | nu
     sessionId,
     anonymousToken: extractId(payload.anonymous_token) || resolveAnonymousTokenFromResponse(response),
   }
+}
+
+export async function listSessionMessages(
+  sessionId: string,
+  anonymousToken?: string | null,
+): Promise<MiddlewareMessage[]> {
+  const response = await fetch(`${getApiBaseUrl()}/sessions/${sessionId}/messages`, {
+    method: 'GET',
+    headers: buildHeaders(anonymousToken),
+  })
+
+  const payload = await assertOk(response, '获取会话消息')
+  if (!Array.isArray(payload)) {
+    return []
+  }
+
+  return payload
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => {
+      const message = item as Record<string, unknown>
+      return {
+        id: extractId(message.id) || '',
+        role: typeof message.role === 'string' ? message.role : 'assistant',
+        content: typeof message.content === 'string' ? message.content : '',
+        createdAt: typeof message.created_at === 'string' ? message.created_at : undefined,
+      }
+    })
+    .filter((item) => item.id && item.content !== '')
 }
 
 function parseSSEEventBlock(block: string): { event: MiddlewareEventType; data: Record<string, unknown> } | null {
@@ -186,7 +231,7 @@ export async function streamSessionChat(
   handlers: MiddlewareChatHandlers,
   anonymousToken?: string | null,
 ): Promise<void> {
-  const response = await fetch(`${getApiBaseUrl()}/sessions/${sessionId}/chat`, {
+  const response = await fetch(`${getApiBaseUrl()}/sessions/${sessionId}/chat/stream`, {
     method: 'POST',
     headers: buildHeaders(anonymousToken),
     body: JSON.stringify(request),
@@ -194,7 +239,7 @@ export async function streamSessionChat(
 
   if (!response.ok) {
     const payload = await readJsonSafely(response)
-    const message = typeof payload.message === 'string' ? payload.message : '会话流请求失败'
+    const message = isRecord(payload) && typeof payload.message === 'string' ? payload.message : '会话流请求失败'
     throw new Error(message)
   }
 

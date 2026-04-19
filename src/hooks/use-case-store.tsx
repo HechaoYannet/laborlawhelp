@@ -42,6 +42,7 @@ function createMessageId() {
 
 export type SessionRuntimeStatus = 'idle' | 'initializing' | 'active' | 'streaming' | 'error'
 export type ConsultationRuntimeMode = 'local' | 'middleware'
+export type BackendSessionStatus = 'active' | 'ended' | 'expired'
 
 export interface SessionStreamError {
   code: string
@@ -49,23 +50,43 @@ export interface SessionStreamError {
   retryable: boolean
 }
 
+export interface SessionReference {
+  title?: string
+  url?: string
+  snippet?: string
+}
+
+export interface SessionToolEvent {
+  toolName: string
+  status: 'started' | 'completed'
+  summary?: string
+  references: SessionReference[]
+  traceId?: string
+  createdAt: number
+}
+
 export interface SessionFinalPayload {
   summary?: string
-  references: Array<{ title?: string; url?: string; snippet?: string }>
+  references: SessionReference[]
   ruleVersion?: string
+  finishReason?: string
+  traceId?: string
 }
 
 export interface SessionContextState {
   caseId: string | null
   sessionId: string | null
+  sessionStatus: BackendSessionStatus | null
   anonymousToken: string | null
   currentMessageId: string | null
   isStreaming: boolean
   streamSeq: number
+  traceId: string | null
   status: SessionRuntimeStatus
   mode: ConsultationRuntimeMode
   lastToolName: string | null
   lastToolResultSummary: string | null
+  toolEvents: SessionToolEvent[]
   finalPayload: SessionFinalPayload | null
   lastError: SessionStreamError | null
 }
@@ -73,17 +94,24 @@ export interface SessionContextState {
 const initialSessionContext: SessionContextState = {
   caseId: null,
   sessionId: null,
+  sessionStatus: null,
   anonymousToken: null,
   currentMessageId: null,
   isStreaming: false,
   streamSeq: 0,
+  traceId: null,
   status: 'idle',
   mode: 'local',
   lastToolName: null,
   lastToolResultSummary: null,
+  toolEvents: [],
   finalPayload: null,
   lastError: null,
 }
+
+type SessionContextUpdater =
+  | Partial<SessionContextState>
+  | ((prev: SessionContextState) => Partial<SessionContextState>)
 
 interface CaseStoreContextType {
   // State
@@ -118,11 +146,12 @@ interface CaseStoreContextType {
   set分流结果: (result: CaseTriagResult) => void
   setRecommendedLawyers: (lawyers: LawyerProfile[]) => void
   addMessage: (message: Omit<DialogueMessage, 'id' | 'timestamp'>) => void
+  replaceMessages: (messages: DialogueMessage[]) => void
   clearMessages: () => void
   setCurrentStage: (stage: DialogueStage) => void
   updateExtractedInfo: (info: Partial<CaseProfile>) => void
   setConsultationInfo: (info: ConsultationInfo) => void
-  setSessionContext: (updates: Partial<SessionContextState>) => void
+  setSessionContext: (updates: SessionContextUpdater) => void
   resetSessionContext: () => void
   resetConsultationInfo: () => void
   resetExtractedInfo: () => void
@@ -237,6 +266,10 @@ export function CaseStoreProvider({ children }: { children: ReactNode }) {
     ])
   }, [])
 
+  const replaceMessages = useCallback((nextMessages: DialogueMessage[]) => {
+    setMessages(nextMessages)
+  }, [])
+
   const clearMessages = useCallback(() => {
     setMessages([])
   }, [])
@@ -253,8 +286,11 @@ export function CaseStoreProvider({ children }: { children: ReactNode }) {
     setConsultationInfoState(info)
   }, [])
 
-  const setSessionContext = useCallback((updates: Partial<SessionContextState>) => {
-    setSessionContextState(prev => ({ ...prev, ...updates }))
+  const setSessionContext = useCallback((updates: SessionContextUpdater) => {
+    setSessionContextState(prev => ({
+      ...prev,
+      ...(typeof updates === 'function' ? updates(prev) : updates),
+    }))
   }, [])
 
   const resetSessionContext = useCallback(() => {
@@ -313,6 +349,7 @@ export function CaseStoreProvider({ children }: { children: ReactNode }) {
     set分流结果: set分流结果Fn,
     setRecommendedLawyers,
     addMessage,
+    replaceMessages,
     clearMessages,
     setCurrentStage,
     updateExtractedInfo,

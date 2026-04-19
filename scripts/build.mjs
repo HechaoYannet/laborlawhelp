@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 const cozeWorkspacePath = process.env.COZE_WORKSPACE_PATH;
 const workspacePath =
@@ -7,13 +8,17 @@ const workspacePath =
     ? cozeWorkspacePath
     : process.cwd();
 
-function runPnpm(command) {
+function resolveLocalBin(binName) {
+  const suffix = process.platform === 'win32' ? '.cmd' : '';
+  return join(workspacePath, 'node_modules', '.bin', `${binName}${suffix}`);
+}
+
+function runCommand(command, args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, {
+    const child = spawn(command, args, {
       cwd: workspacePath,
       env: process.env,
       stdio: 'inherit',
-      shell: true,
     });
 
     child.on('exit', code => {
@@ -21,7 +26,7 @@ function runPnpm(command) {
         resolve();
         return;
       }
-      reject(new Error(`${command} failed with exit code ${code}`));
+      reject(new Error(`${command} ${args.join(' ')} failed with exit code ${code}`));
     });
 
     child.on('error', reject);
@@ -29,9 +34,10 @@ function runPnpm(command) {
 }
 
 try {
-  await runPnpm('pnpm next build');
-  await runPnpm(
-    'pnpm tsup src/server.ts --format cjs --platform node --target node20 --outDir dist --no-splitting --no-minify',
+  await runCommand(resolveLocalBin('next'), ['build']);
+  await runCommand(
+    resolveLocalBin('tsup'),
+    ['src/server.ts', '--format', 'cjs', '--platform', 'node', '--target', 'node20', '--outDir', 'dist', '--no-splitting', '--no-minify'],
   );
   console.log('Build completed successfully!');
 } catch (err) {

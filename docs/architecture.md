@@ -66,10 +66,14 @@
 
 ## 4. 当前边界与事实
 
-1. 咨询主链路已接入中间件 SSE（cases/sessions/chat），本地规则保留为回退路径。
+1. 咨询主链路已接入中间件 SSE（cases/sessions/chat/stream），并消费 `message_start/content_delta/tool_call/tool_result/final/message_end/error` 事件。
 2. 语音识别依赖浏览器 Web Speech API。
-3. 仓库中暂无可执行 MCP server/client 链路。
-4. `consultation/page.tsx` 仍存在较多状态编排逻辑，服务层边界需继续下沉收口。
+3. 前端会保留 `case_id/session_id/trace_id/stream_seq`，并在咨询页展示工具轨迹、结构化摘要和 PKULaw 引用结果。
+4. 前端在匿名模式下会本地生成 `X-Anonymous-Token`，并将匿名会话信息持久化到本地。
+5. 前端会通过后端 `GET /sessions/{session_id}/messages` 在刷新后恢复会话历史。
+6. 本地规则与测算模块保留为回退路径，默认不作为主链路。
+7. 仓库中暂无可执行 MCP server/client 链路，但前端已对接中间件返回的 MCP 工具事件与引用结果。
+8. `consultation/page.tsx` 仍存在较多状态编排逻辑，服务层边界需继续下沉收口。
 
 ## 5. 主要技术债
 
