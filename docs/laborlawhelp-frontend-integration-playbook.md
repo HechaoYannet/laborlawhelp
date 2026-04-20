@@ -15,11 +15,10 @@
 ## 2. 现状与目标
 
 ## 2.1 前端现状（来自 laborlawhelp 仓库）
-当前咨询链路已进入“中间件主路径 + 本地回退”阶段：
+当前咨询链路已进入“中间件唯一主路径”阶段：
 - 已支持 `create case -> create session -> chat SSE` 的主链路。
 - 已接入 `message_start/content_delta/tool_call/tool_result/final/message_end/error` 事件消费。
 - 已支持前端本地自举匿名 token，并在刷新后恢复匿名 session 与消息历史。
-- 本地规则模块仍保留，用于回退兜底，不作为默认主路径。
 
 当前仍需收口项：
 - 继续将页面内网络/事件映射逻辑下沉到 feature API 层。
@@ -30,12 +29,12 @@
 将咨询主链路改为：
 1. 先创建 case
 2. 再创建 session
-3. 最后调用 `POST /sessions/{session_id}/chat` 消费 SSE
+3. 最后调用 `POST /sessions/{session_id}/chat/stream` 消费 SSE
 
 即：
 - 前端负责输入、展示、状态机。
 - 后端负责推理、工具调用、摘要、引用。
-- 本地规则模块仅保留回退路径，默认关闭。
+- 生产路径不自动切换本地回退回复。
 
 ---
 
@@ -58,6 +57,14 @@
 - `final`
 - `message_end`
 - `error`
+
+`tool_result` 扩展字段（可选）：
+- `card_type`
+- `card_title`
+- `card_payload`
+- `card_actions`
+
+说明：前端必须忽略未知事件与未知字段，确保协议向前兼容。
 
 ---
 
@@ -162,14 +169,16 @@ NEXT_PUBLIC_MIDDLEND_BASE_URL=http://localhost:8000
 
 ---
 
-## 7. SSE 解析器（替换打字机主链路）
+## 7. SSE 解析器（正式版协议实现）
 
 ## 7.1 行为要求
-1. 使用 `fetch + ReadableStream`。
-2. 以 `\n\n` 分帧。
-3. 使用 `TextDecoder(stream:true)` 处理 UTF-8 分片。
-4. 忽略未知事件，确保向前兼容。
-5. 对 `content_delta` 做 `seq` 单调校验。
+1. 使用 `fetch + ReadableStream`（POST），不使用 `EventSource`。
+2. 以 `\n\n` 作为帧边界解析 SSE。
+3. 使用 `TextDecoder(stream:true)` 处理 UTF-8 分片，避免中文截断乱码。
+4. 对 `content_delta.seq` 做单调校验，丢弃重复或倒序分片。
+5. 忽略未知事件和未知字段，禁止因扩展字段导致整流失败。
+6. 以 `message_end` 作为当前 assistant 消息完成信号；`final` 与 `error` 不能替代 `message_end`。
+7. 若收到 `error`，应保留当前消息与轨迹并进入可重试状态，而不是抛弃已到达增量内容。
 
 ## 7.2 建议骨架
 ```ts
@@ -251,13 +260,13 @@ export async function streamChat(
 6. 页面刷新时优先通过 `session_id + anonymous_token` 调 `GET /sessions/{session_id}/messages` 恢复会话。
 
 ## 8.3 事件到 UI 的映射建议
-- `message_start`：创建 assistant 占位消息。
-- `content_delta`：追加文本到 assistant 消息。
+- `message_start`：创建 assistant 占位消息并记录 `message_id/trace_id`。
+- `content_delta`：按 `seq` 追加文本到 assistant 消息。
 - `tool_call`：显示“处理中”状态条。
-- `tool_result`：更新工具状态摘要。
-- `final`：更新右侧会话总结、引用信息、规则版本。
-- `message_end`：结束 loading，允许下次输入。
-- `error`：展示错误提示与重试按钮。
+- `tool_result`：更新工具状态摘要；若存在 `card_type/card_payload`，在消息流中渲染结构化结果卡。
+- `final`：更新右侧会话总结、引用信息、规则版本、完成原因。
+- `error`：展示错误提示与重试按钮，同时保留已接收内容。
+- `message_end`：结束 loading，允许下次输入（流收尾唯一信号）。
 
 ## 8.4 匿名 owner 策略
 - 当前后端匿名模式要求 `X-Anonymous-Token`。
@@ -266,24 +275,11 @@ export async function streamChat(
 
 ---
 
-## 9. 本地能力保留策略（回退）
-本地模块不要删除，但应从“主链路”降级到“回退链路”：
-
-- 保留模块：
-  - `src/lib/calculation.ts`
-  - `src/lib/dialogue-flow.ts`
-  - `src/lib/document-generator.ts`
-  - `src/lib/case-triage.ts`
-
-- 回退触发条件（建议）：
-  1. 后端返回 `error.retryable=false` 且明确 fallback 标记。
-  2. 运维开关允许（例如 `NEXT_PUBLIC_ENABLE_LOCAL_FALLBACK=true`）。
-
-兼容说明（迁移窗口内）：
-- 旧开关 `NEXT_PUBLIC_ENABLE_LOCAL_RULE_FALLBACK` 可作为 fallback 读取。
-
-- 回退展示要求：
-  - 必须标注“本次结果来自回退逻辑”。
+## 9. 正式版链路约束（中间件唯一）
+1. `handleSend` 必须走 `cases -> sessions -> chat/stream` 的 SSE 流程。
+2. 生产路径禁止自动拼接本地规则回复作为失败兜底。
+3. 本地模块（`calculation/dialogue-flow/document-generator/case-triage`）仅用于离线开发验证。
+4. 中间件错误场景按 `error` 事件和 `retryable` 提示用户重试。
 
 ---
 
@@ -308,9 +304,9 @@ export async function streamChat(
 - 不改 UI 展示，仅接入调试日志。
 
 ### PR-2：主链路切换
-- `consultation/page.tsx` 切换到真实 cases/sessions/chat。
+- `consultation/page.tsx` 切换到真实 cases/sessions/chat/stream。
 - 接入全部 SSE 事件映射。
-- 保留本地回退但默认关闭。
+- 保留本地模块仅用于离线开发验证，不进入生产自动回退路径。
 
 ### PR-3：体验收口
 - 右侧摘要/引用/流程状态改为 `final` 事件驱动。
@@ -327,6 +323,7 @@ export async function streamChat(
 3. `content_delta` 文本连续、无乱序。
 4. `final` 信息可更新到会话摘要区域。
 5. `message_end` 后输入框恢复可用。
+6. `tool_result` 的 `card_*` 字段可驱动要素卡/测算卡/文书卡/律师卡渲染。
 
 ## 12.2 异常验收
 1. 模拟 409：前端能提示并重试。
