@@ -8,7 +8,7 @@
 
 1. 交互层：`src/app/*` 页面与 UI 组件。
 2. 状态层：`src/hooks/use-case-store.tsx`、`src/hooks/use-speech-recognition.ts`。
-3. 领域层：`src/lib/*`（计算、文书、分流、风控规则）。
+3. 领域与服务层：`src/lib/*`（本地规则与 HR 风控） + `src/features/consultation/*`（中间件 API、结果卡组件）。
 4. 运行层：`src/server.ts` 与 `scripts/*.mjs`。
 
 ## 2. 目录职责
@@ -20,6 +20,7 @@
 - `src/app/consultation/page.tsx`：劳动者咨询主流程。
 - `src/app/hr-risk/page.tsx`：企业端 HR 风险检查主流程。
 - `src/app/layout.tsx`：全局 metadata、Provider、开发辅助注入。
+- `src/features/consultation/components/*`：咨询结果卡（要素抽取、测算、文书、律师转介）展示层。
 
 ### 2.2 状态层
 
@@ -34,6 +35,7 @@
 - `src/lib/document-generator.ts`：文书模板生成。
 - `src/lib/case-triage.ts`：案件复杂度评估与分流。
 - `src/lib/hr-risk-check.ts`：HR 风险规则与报告生成。
+- `src/features/consultation/services/middleware-api.ts`：咨询页中间件 API 与 SSE 解析入口。
 
 ### 2.4 运行层
 
@@ -46,11 +48,11 @@
 
 ### 3.1 劳动者咨询流程
 
-1. 进入咨询页，初始化对话上下文。
-2. 用户通过文本或语音输入案情。
-3. 规则提取模块识别关键字段。
-4. 根据意图分发到计算/总结/分流模块。
-5. 页面渲染回复、更新消息历史与状态。
+1. 进入咨询页，初始化或恢复中间件 `case/session` 上下文。
+2. 用户通过文本或语音输入案情，前端调用 `/sessions/{session_id}/chat/stream`。
+3. 页面按 SSE 事件更新消息与工具状态：`message_start/content_delta/tool_call/tool_result/final/message_end/error`。
+4. `tool_result` 事件若包含 `card_type/card_title/card_payload/card_actions`，前端渲染结构化结果卡。
+5. 页面落地会话与轨迹信息（`case_id/session_id/trace_id/seq`），支持刷新后恢复。
 
 ### 3.2 文书生成流程
 
@@ -66,14 +68,14 @@
 
 ## 4. 当前边界与事实
 
-1. 咨询主链路已接入中间件 SSE（cases/sessions/chat/stream），并消费 `message_start/content_delta/tool_call/tool_result/final/message_end/error` 事件。
+1. 咨询主链路为中间件 SSE（`cases -> sessions -> /chat/stream`），正式路径不再自动回退本地规则回复。
 2. 语音识别依赖浏览器 Web Speech API。
 3. 前端会保留 `case_id/session_id/trace_id/stream_seq`，并在咨询页展示工具轨迹、结构化摘要和 PKULaw 引用结果。
 4. 前端在匿名模式下会本地生成 `X-Anonymous-Token`，并将匿名会话信息持久化到本地。
 5. 前端会通过后端 `GET /sessions/{session_id}/messages` 在刷新后恢复会话历史。
-6. 本地规则与测算模块保留为回退路径，默认不作为主链路。
+6. `tool_result` 已扩展结构化卡片协议：`card_type/card_title/card_payload/card_actions`，用于驱动要素卡、测算卡、文书卡、律师转介卡。
 7. 仓库中暂无可执行 MCP server/client 链路，但前端已对接中间件返回的 MCP 工具事件与引用结果。
-8. `consultation/page.tsx` 仍存在较多状态编排逻辑，服务层边界需继续下沉收口。
+8. `consultation/page.tsx` 仍存在较多状态编排逻辑，已完成卡片组件拆分，后续可继续下沉会话编排与事件处理。
 
 ## 5. 主要技术债
 

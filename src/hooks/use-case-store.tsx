@@ -61,6 +61,10 @@ export interface SessionToolEvent {
   status: 'started' | 'completed'
   summary?: string
   references: SessionReference[]
+  cardType?: string
+  cardTitle?: string
+  cardPayload?: Record<string, unknown>
+  cardActions?: Array<{ action: string; label: string }>
   traceId?: string
   createdAt: number
 }

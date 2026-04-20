@@ -18,7 +18,7 @@ import {
   LoaderCircle,
 } from 'lucide-react'
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable'
-import type { CalculationResult } from '@/lib/types'
+import { ConsultationResultCards } from '@/features/consultation/components/consultation-result-cards'
 import {
   extractConsultationInfo,
   mergeConsultationInfo,
@@ -36,7 +36,7 @@ import {
 } from '@/hooks/use-case-store'
 import type { PanelImperativeHandle } from 'react-resizable-panels'
 
-const MIDDLEWARE_CLIENT_CAPABILITIES = ['citations', 'tool-status', 'structured-final', 'trace-id']
+const MIDDLEWARE_CLIENT_CAPABILITIES = ['citations', 'tool-status', 'structured-final', 'trace-id', 'card-blocks']
 const CONSULTATION_SESSION_STORAGE_KEY = 'laborlawhelp.consultation.middleware-session'
 
 function normalizeReferences(value: unknown): SessionReference[] {
@@ -54,6 +54,23 @@ function normalizeReferences(value: unknown): SessionReference[] {
         snippet: typeof ref.snippet === 'string' ? ref.snippet : undefined,
       }
     })
+}
+
+function normalizeCardActions(value: unknown): Array<{ action: string; label: string }> {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => {
+      const action = item as Record<string, unknown>
+      return {
+        action: typeof action.action === 'string' ? action.action : '',
+        label: typeof action.label === 'string' ? action.label : '',
+      }
+    })
+    .filter((item) => item.action && item.label)
 }
 
 function shortenId(value: string | null | undefined) {
@@ -97,9 +114,6 @@ function isSessionNotFoundError(error: unknown) {
 
 export default function LaborRightsConsultation() {
   const middlewareModeEnabled = process.env.NEXT_PUBLIC_ENABLE_MIDDLEWARE_CHAT === 'true'
-  const localFallbackEnabled =
-    process.env.NEXT_PUBLIC_ENABLE_LOCAL_FALLBACK === 'true' ||
-    process.env.NEXT_PUBLIC_ENABLE_LOCAL_RULE_FALLBACK === 'true'
   const middlewarePolicyVersion =
     process.env.NEXT_PUBLIC_MIDDLEWARE_POLICY_VERSION ||
     process.env.NEXT_PUBLIC_POLICY_VERSION ||
@@ -108,7 +122,6 @@ export default function LaborRightsConsultation() {
   const [inputValue, setInputValue] = useState('')
   const [isThinking, setIsThinking] = useState(false)
   const [displayText, setDisplayText] = useState('')
-  const [pendingResponse, setPendingResponse] = useState<string | null>(null)
   const [isWideScreen, setIsWideScreen] = useState(false)
   const [isLandscape, setIsLandscape] = useState(false)
   const [isCompactLandscape, setIsCompactLandscape] = useState(false)
@@ -297,30 +310,6 @@ export default function LaborRightsConsultation() {
 
     lastMessageCountRef.current = messages.length
   }, [messages.length, isNearBottom])
-
-  // 打字机效果
-  useEffect(() => {
-    if (!pendingResponse) return
-    
-    const text = pendingResponse
-    let index = 0
-    setDisplayText('')
-    
-    const typeInterval = setInterval(() => {
-      if (index < text.length) {
-        setDisplayText(text.slice(0, index + 1))
-        index++
-      } else {
-        clearInterval(typeInterval)
-        setIsThinking(false)
-        setDisplayText('')
-        setPendingResponse(null)
-        addMessage({ role: 'assistant', content: text })
-      }
-    }, 30)
-
-    return () => clearInterval(typeInterval)
-  }, [addMessage, pendingResponse])
 
   // 语音输入同步到输入框
   useEffect(() => {
@@ -647,6 +636,12 @@ export default function LaborRightsConsultation() {
           const resultSummary =
             typeof payload.result_summary === 'string' ? payload.result_summary : '工具调用已完成'
           const references = normalizeReferences(payload.references)
+          const cardType = typeof payload.card_type === 'string' ? payload.card_type : undefined
+          const cardTitle = typeof payload.card_title === 'string' ? payload.card_title : undefined
+          const cardPayload = payload.card_payload && typeof payload.card_payload === 'object'
+            ? payload.card_payload as Record<string, unknown>
+            : undefined
+          const cardActions = normalizeCardActions(payload.card_actions)
           const traceId = typeof payload.trace_id === 'string' ? payload.trace_id : undefined
           if (traceId) {
             streamTraceId = traceId
@@ -665,6 +660,10 @@ export default function LaborRightsConsultation() {
                 status: 'completed',
                 summary: resultSummary,
                 references,
+                cardType,
+                cardTitle,
+                cardPayload,
+                cardActions,
                 traceId: traceId ?? nextToolEvents[targetIndex].traceId,
               }
             } else if (toolName) {
@@ -673,6 +672,10 @@ export default function LaborRightsConsultation() {
                 status: 'completed',
                 summary: resultSummary,
                 references,
+                cardType,
+                cardTitle,
+                cardPayload,
+                cardActions,
                 traceId,
                 createdAt: Date.now(),
               })
@@ -760,177 +763,6 @@ export default function LaborRightsConsultation() {
     })
   }
 
-  // 提取信息
-  // 生成回复
-  const getAssistantResponse = async (userMessage: string): Promise<string> => {
-    // 合并历史消息分析
-    const allText = [...messages.map(m => m.content), userMessage].join('\n')
-    const lower = allText.toLowerCase()
-    
-    const { info, newInfo } = applyConsultationExtraction(userMessage)
-
-    // 检测是否在描述劳动纠纷
-    const isDescribingDispute = /辞|开|不用来|被辞|被开|辞退|裁员|开除/.test(lower)
-    const isFirstResponse = messages.length === 1
-
-    // 检测是否在问赔偿
-    const isAskingCompensation = /赔偿|补偿|能拿.*少|多少钱|赔.*少/.test(lower)
-    const isAskingProcess = /怎么|如何|步骤|流程|需要.*什么|准备.*什么/.test(lower)
-    const isAskingLawyer = /律师|找.*人|需要.*请.*律师/.test(lower)
-
-    // 如果用户在问赔偿或流程 - 直接生成计算
-    if (isAskingCompensation || isAskingProcess) {
-      if (info.entryDate || info.wage) {
-        const { calculateCompensation } = await import('@/lib/calculation')
-        const calculation: CalculationResult = calculateCompensation(consultationInfoToCaseProfile(info))
-        
-        return `根据您说的情况，我帮您按西安本地口径做初步测算：
-
-**赔偿项目：**
-${calculation.items.filter((i) => i.amount > 0).map((i) => `• ${i.name}：约 ${i.amount.toLocaleString()} 元`).join('\n')}
-
-**合计：约 ${calculation.totalAmount.toLocaleString()} 元**
-
-> 注：以上为系统初步测算，最终以仲裁裁决为准。
-
-${isAskingProcess ? `
-
-**维权基本流程：**
-1. 准备材料：身份证、公司工商信息、证据清单
-2. 去公司注册地的劳动仲裁委提交申请
-3. 等待仲裁委受理和开庭通知
-4. 按时参加庭审
-
-**时间提醒：** 仲裁时效1年，从被辞退之日起算。
-
-请问还有什么要了解的吗？` : ''}`
-      }
-    }
-
-    // 如果用户在问律师
-    if (isAskingLawyer) {
-      const { evaluateCaseComplexity, recommendLawyers } = await import('@/lib/case-triage')
-      const triageResult = evaluateCaseComplexity(consultationInfoToCaseProfile(info))
-      recommendLawyers(consultationInfoToCaseProfile(info))
-
-      let suggestion = ''
-      if (triageResult.complexity === 'simple') {
-        suggestion = '您的案件相对简单，也可以尝试自己处理。但如果担心应对不好，委托律师会更稳妥。'
-      } else {
-        suggestion = '您的案件有一定复杂度，建议委托专业律师处理。'
-      }
-
-      return `${suggestion}
-
-我们平台可以为您推荐西安本地擅长劳动争议的律师，根据您的案件类型精准匹配。需要我帮您推荐吗？`
-    }
-
-    // 如果是第一次回复
-    if (isFirstResponse) {
-      // 检测用户情绪
-      const isAngry = /气|怒|恨|不公平|凭什么|委屈|无助/.test(lower)
-      
-      let greeting = ''
-      if (isAngry || isDescribingDispute) {
-        greeting = `您好，特别理解您现在又委屈又生气的心情，被突然辞退换谁都会觉得无助。别着急，我会一步步帮您理清楚情况。`
-      } else {
-        greeting = `您好，我来帮您理清情况。`
-      }
-
-      // 如果用户已经描述了很多信息，先确认并追问
-      const infoCount = [info.entryDate, info.wage, info.terminationMethod, info.evidence.length > 0, info.previousAction].filter(Boolean).length
-
-      if (infoCount >= 3) {
-        // 用户已说很多，确认并补充
-        const { calculateCompensation, generateCaseSummary } = await Promise.all([
-          import('@/lib/calculation'),
-          import('@/lib/dialogue-flow')
-        ]).then(m => ({ calculateCompensation: m[0].calculateCompensation, generateCaseSummary: m[1].generateCaseSummary }))
-
-        generateCaseSummary(consultationInfoToCaseProfile(info))
-        const calc: CalculationResult = calculateCompensation(consultationInfoToCaseProfile(info))
-
-        return `${greeting}
-
-我帮您整理一下您说的情况：
-${info.entryDate ? `• 入职时间：${info.entryDate}` : ''}
-${info.wage ? `• 月工资：约${info.wage}元` : ''}
-${info.terminationMethod ? `• 辞退方式：${info.terminationMethod === 'verbal' ? '口头' : '书面'}` : ''}
-${info.terminationReason ? `• 辞退理由：${info.terminationReason}` : ''}
-${info.contract ? `• 合同情况：${info.contract === 'signed' ? '已签' : info.contract === 'lost' ? '签了但找不到' : '未签'}` : ''}
-${info.evidence.length > 0 ? `• 您有的证据：${info.evidence.join('、')}` : ''}
-
-按西安口径初步测算，可主张赔偿约 **${calc.totalAmount.toLocaleString()} 元**。
-
-请问还有什么需要补充的吗？比如社保情况、有没有加班费没发这些？`
-      }
-
-      // 追问缺失信息
-      const questions: string[] = []
-      if (!info.entryDate) questions.push('您是什么时候入职的？')
-      if (!info.wage) questions.push('您每个月到手工资大概多少？')
-      if (!info.terminationMethod) questions.push('他们是口头还是书面通知您的？')
-      if (info.terminationMethod && !info.terminationReason) questions.push('有没有说辞退您的理由？')
-      if (info.evidence.length === 0) questions.push('您手里有哪些证据？比如工资流水、聊天记录这些？')
-
-      if (questions.length > 0) {
-        return `${greeting}\n\n请告诉我：${questions.join('、')}？`
-      }
-    }
-
-    // 后续对话 - 继续追问缺失信息
-    const { calculateCompensation, generateCaseSummary } = await Promise.all([
-      import('@/lib/calculation'),
-      import('@/lib/dialogue-flow')
-    ]).then(m => ({ calculateCompensation: m[0].calculateCompensation, generateCaseSummary: m[1].generateCaseSummary }))
-
-    // 确认本次提供的信息
-    const confirmation: string[] = []
-    if (newInfo.entryDate) confirmation.push(`入职时间${newInfo.entryDate}`)
-    if (newInfo.wage) confirmation.push(`工资${newInfo.wage}元`)
-    if (newInfo.terminationMethod) confirmation.push(`辞退方式${newInfo.terminationMethod === 'verbal' ? '口头' : '书面'}`)
-    if (newInfo.terminationReason) confirmation.push(`理由${newInfo.terminationReason}`)
-    if (newInfo.contract) confirmation.push(`合同${newInfo.contract === 'signed' ? '已签' : newInfo.contract === 'lost' ? '签了但找不到' : '未签'}`)
-    if (newInfo.evidence.length > 0) confirmation.push(`证据${newInfo.evidence.join('、')}`)
-    if (newInfo.previousAction) confirmation.push(`维权进度${newInfo.previousAction === 'none' ? '未采取任何行动' : newInfo.previousAction === 'negotiation' ? '曾协商' : '已仲裁'}`)
-
-    const confirmText = confirmation.length > 0 ? `好的，我记下了：${confirmation.join('、')}。` : ''
-
-    // 检查还缺什么
-    const missing: string[] = []
-    if (!info.entryDate && !newInfo.entryDate) missing.push('入职时间')
-    if (!info.wage && !newInfo.wage) missing.push('工资')
-    if (!info.terminationMethod && !newInfo.terminationMethod) missing.push('辞退方式')
-    if (!info.evidence.length && !newInfo.evidence.length) missing.push('证据')
-    if (!info.previousAction && !newInfo.previousAction) missing.push('维权进度')
-
-    // 如果信息足够，生成总结
-    if (info.entryDate && info.wage && info.terminationMethod && (info.evidence.length > 0 || info.previousAction)) {
-      const summary = generateCaseSummary(consultationInfoToCaseProfile(info))
-      const calc: CalculationResult = calculateCompensation(consultationInfoToCaseProfile(info))
-
-      return `${confirmText}
-
-我帮您整理一下：
-${summary}
-
-按西安口径初步测算，可主张赔偿约 **${calc.totalAmount.toLocaleString()} 元**。
-
-> 注：以上为系统初步测算，最终以仲裁裁决为准，不替代律师复核。
-
-**建议：**
-• 先整理好手头的证据（工资流水、聊天记录等）
-• 去社保部门打印缴费记录
-• 带着材料去公司注册地的劳动仲裁委提交申请
-• 注意仲裁时效是1年，从被辞退之日起算
-
-请问还有什么要了解的吗？`
-    }
-
-    // 继续追问
-    return `${confirmText}${missing.length > 0 ? `\n\n请再告诉我：${missing.join('、')}？` : '\n\n请继续说，还有什么情况？'}`
-  }
-
   // 发送消息
   const handleSend = async () => {
     const content = inputValue.trim()
@@ -944,36 +776,13 @@ ${summary}
     setIsThinking(true)
 
     try {
-      if (middlewareModeEnabled) {
-        await getAssistantResponseFromMiddleware(content)
-        return
+      if (!middlewareModeEnabled) {
+        throw new Error('当前版本仅支持中间件驱动咨询，请开启 NEXT_PUBLIC_ENABLE_MIDDLEWARE_CHAT=true。')
       }
 
-      const response = await getAssistantResponse(content)
-      setPendingResponse(response)
+      await getAssistantResponseFromMiddleware(content)
     } catch (error) {
       console.error('Error:', error)
-
-      if (middlewareModeEnabled && localFallbackEnabled) {
-        try {
-          const fallbackResponse = await getAssistantResponse(content)
-          setPendingResponse(`【本次结果来自回退逻辑】\n\n${fallbackResponse}`)
-          setSessionContext({
-            mode: 'local',
-            status: 'active',
-            isStreaming: false,
-            lastError: {
-              code: 'OH_SERVICE_ERROR',
-              message: '中间件不可用，已自动切换为本地规则模式。',
-              retryable: true,
-            },
-          })
-          setDisplayText('')
-          return
-        } catch (fallbackError) {
-          console.error('Fallback error:', fallbackError)
-        }
-      }
 
       setSessionContext({
         status: 'error',
@@ -1110,6 +919,38 @@ ${summary}
     }
   }
 
+  const handleCardAction = async (action: string, payload: Record<string, unknown>) => {
+    try {
+      if (action === 'copy_document' || action === 'copy_referral' || action === 'copy_summary') {
+        const text = JSON.stringify(payload, null, 2)
+        await navigator.clipboard.writeText(text)
+        return
+      }
+
+      if (action === 'download_document') {
+        const content = typeof payload.content === 'string' ? payload.content : JSON.stringify(payload, null, 2)
+        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = 'laborlawhelp-document.txt'
+        a.click()
+        URL.revokeObjectURL(url)
+        return
+      }
+
+      if (action === 'book_lawyer') {
+        setInputValue('我想预约律师咨询，请帮我生成预约摘要。')
+        requestAnimationFrame(() => {
+          resizeTextarea()
+          inputRef.current?.focus()
+        })
+      }
+    } catch (error) {
+      console.error('card action failed:', error)
+    }
+  }
+
   const headerClass = isCompactLandscape ? 'px-3 py-2.5' : 'px-4 py-3 md:px-6 md:py-4'
   const contentMaxWidth = isWideScreen ? 'max-w-4xl' : 'max-w-3xl'
   const bubbleTextClass = isCompactLandscape ? 'text-[13px] leading-5' : 'text-sm leading-relaxed'
@@ -1146,7 +987,6 @@ ${summary}
     const textClass = layout === 'desktop' ? 'text-[15px] leading-7' : bubbleTextClass
     const bubbleClass = layout === 'desktop' ? 'px-5 py-4' : bubblePaddingClass
     const thinkingTextClass = layout === 'desktop' ? 'text-sm' : isCompactLandscape ? 'text-xs' : 'text-sm'
-
     return (
       <>
         {messages.map((message, index) => (
@@ -1205,6 +1045,17 @@ ${summary}
           </div>
         )}
 
+        {sessionContext.toolEvents.length > 0 && (
+          <div className={`flex ${gapClass} justify-start`}>
+            <div className={`${avatarSizeClass} rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0`}>
+              <Bot className={`${assistantIconClass} text-blue-600`} />
+            </div>
+            <div className={messageWidthClass}>
+              <ConsultationResultCards events={sessionContext.toolEvents} onAction={handleCardAction} />
+            </div>
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </>
     )
@@ -1240,7 +1091,7 @@ ${summary}
           ? '请求异常'
           : sessionContext.mode === 'middleware'
             ? '中间件会话'
-            : '本地回退'
+            : '中间件未启用'
 
   const summarizeText = (text: string) => {
     const compactText = text.replace(/\s+/g, ' ').trim()
