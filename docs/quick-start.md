@@ -50,13 +50,13 @@ cp .env.example .env.local
 将 `.env.local` 至少改成下面这些值：
 
 ```env
-NEXT_PUBLIC_APP_URL=http://127.0.0.1:5000
+NEXT_PUBLIC_APP_URL=http://localhost:5000
 NEXT_PUBLIC_ENABLE_MIDDLEWARE_CHAT=true
-NEXT_PUBLIC_MIDDLEND_BASE_URL=http://127.0.0.1:8000/api/v1
+NEXT_PUBLIC_MIDDLEND_BASE_URL=http://localhost:8000/api/v1
 NEXT_PUBLIC_ENABLE_LOCAL_FALLBACK=false
 NEXT_PUBLIC_MIDDLEWARE_POLICY_VERSION=
 
-HOSTNAME=127.0.0.1
+HOSTNAME=localhost
 PORT=5000
 ```
 
@@ -64,7 +64,7 @@ PORT=5000
 
 - `NEXT_PUBLIC_ENABLE_MIDDLEWARE_CHAT=true`：让咨询页走中间件主链路。
 - `NEXT_PUBLIC_ENABLE_LOCAL_FALLBACK=false`：先不要混入本地回退，便于确认真实集成状态。
-- `NEXT_PUBLIC_MIDDLEND_BASE_URL` 指向本地后端的 API 前缀，默认本地联调用 `http://127.0.0.1:8000/api/v1`。
+- `NEXT_PUBLIC_MIDDLEND_BASE_URL` 指向本地后端的 API 前缀，默认本地联调用 `http://localhost:8000/api/v1`。
 
 ## 3.1 后端本地联调环境
 
@@ -82,7 +82,7 @@ storage_backend=memory
 auth_mode=anonymous
 oh_use_mock=true
 oh_mode=mock
-cors_allow_origins=http://localhost:5000,http://127.0.0.1:5000
+cors_allow_origins=http://localhost:5000
 cors_allow_credentials=true
 cors_allow_methods=*
 cors_allow_headers=*
@@ -91,7 +91,7 @@ cors_allow_headers=*
 说明：
 
 - `cors_allow_origins` 需要覆盖前端开发地址，否则浏览器会在预检阶段拦截请求。
-- 当前本地联调默认允许 `localhost:5000` 和 `127.0.0.1:5000`。
+- 当前本地联调默认允许 `localhost:5000`。
 - 如果你把前端换到别的端口，需要同步补充这个列表。
 
 ## 4. 后端初始化
@@ -115,7 +115,7 @@ storage_backend=memory
 auth_mode=anonymous
 oh_use_mock=true
 oh_mode=mock
-cors_allow_origins=http://localhost:5000,http://127.0.0.1:5000
+cors_allow_origins=http://localhost:5000
 cors_allow_credentials=true
 cors_allow_methods=*
 cors_allow_headers=*
@@ -150,7 +150,7 @@ corepack pnpm dev
 成功后你应看到开发服务监听在：
 
 ```text
-http://127.0.0.1:5000
+http://localhost:5000
 ```
 
 ## 6. 手动验证一轮咨询流程
@@ -158,7 +158,7 @@ http://127.0.0.1:5000
 打开浏览器访问：
 
 ```text
-http://127.0.0.1:5000/consultation
+http://localhost:5000/consultation
 ```
 
 建议输入这句测试文案：
@@ -299,7 +299,9 @@ oh_protocol_error_threshold=20
 
 ```bash
 # 1. 启动 OpenHarness 服务 / 网关
-# 2. 确认流接口可访问
+# 2. 确认流接口可访问 怎么确认：
+#    curl -H "Authorization: Bearer <token>" http://127.0.0.1:8080/api/v1/stream-run
+
 # 3. 启动 middlend 后端
 # 4. 启动前端
 ```
