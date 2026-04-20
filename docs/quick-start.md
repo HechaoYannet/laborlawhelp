@@ -56,7 +56,7 @@ corepack pnpm dev
 
 ```bash
 cd /home/chen-hao/repositories/laborhelper/laborlawhelp-middlend/backend
-python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+python -m uvicorn app.main:app --reload --host localhost --port 8000
 ```
 
 如果后端已经在运行，先停止原来的 `uvicorn` 进程，再重新执行上面的命令。
