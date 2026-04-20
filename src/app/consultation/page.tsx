@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { useSpeechRecognition } from '@/hooks/use-speech-recognition'
 import { Button } from '@/components/ui/button'
 import {
@@ -83,6 +85,14 @@ function createAnonymousOwnerToken() {
   }
 
   return `anon-insecure-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
+}
+
+function isSessionNotFoundError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  return /session not found|会话不存在|SESSION_NOT_FOUND/i.test(error.message)
 }
 
 export default function LaborRightsConsultation() {
@@ -406,7 +416,22 @@ export default function LaborRightsConsultation() {
           return
         }
 
-        const history = await listSessionMessages(restoredSessionId, restoredAnonymousToken)
+        let history = [] as Awaited<ReturnType<typeof listSessionMessages>>
+        try {
+          history = await listSessionMessages(restoredSessionId, restoredAnonymousToken)
+        } catch (error) {
+          if (!isSessionNotFoundError(error)) {
+            throw error
+          }
+
+          clearPersistedMiddlewareSession()
+          setSessionContext({
+            mode: 'middleware',
+            anonymousToken: createAnonymousOwnerToken(),
+          })
+          addMessage({ role: 'assistant', content: '请告诉我您的诉求' })
+          return
+        }
         if (cancelled) return
 
         if (history.length > 0) {
@@ -1141,7 +1166,15 @@ ${summary}
                   : 'bg-white border border-slate-200 text-slate-700 rounded-tl-sm shadow-sm'
               }`}
             >
-              <p className={`${textClass} whitespace-pre-wrap`}>{message.content}</p>
+              <div
+                className={`${textClass} whitespace-normal break-words [word-break:break-word] [&_p]:mb-2 [&_p:last-child]:mb-0 [&_ul]:mb-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:mb-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mb-1 [&_li]:last:mb-0 [&_h1]:mb-2 [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mb-1 [&_h3]:font-semibold [&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:px-3 [&_pre]:py-2 [&_pre]:font-mono [&_pre]:text-[0.92em] [&_code]:rounded [&_code]:px-1 [&_code]:py-0.5 [&_table]:my-2 [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_td]:border [&_td]:px-2 [&_td]:py-1 ${
+                  message.role === 'user'
+                    ? '[&_a]:text-white [&_a]:underline [&_blockquote]:border-white/50 [&_pre]:bg-blue-700/70 [&_code]:bg-blue-700/70 [&_th]:border-white/30 [&_td]:border-white/30'
+                    : '[&_a]:text-blue-700 [&_a]:underline [&_blockquote]:border-slate-300 [&_pre]:bg-slate-100 [&_code]:bg-slate-100 [&_th]:border-slate-300 [&_td]:border-slate-300'
+                }`}
+              >
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+              </div>
             </div>
             {message.role === 'user' && (
               <div className={`${avatarSizeClass} rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0`}>
