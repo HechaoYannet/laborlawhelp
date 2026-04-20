@@ -333,7 +333,7 @@ oh_protocol_error_threshold=20
 
 ```bash
 # 1. 启动 OpenHarness 服务 / 网关
-# 2. 确认流接口可访问 怎么确认：
+# 2. 用 curl 验证流接口可达：
 #    curl -H "Authorization: Bearer <token>" http://127.0.0.1:8080/api/v1/stream-run
 
 # 3. 启动 middlend 后端
