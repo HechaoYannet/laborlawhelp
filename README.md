@@ -52,7 +52,7 @@ corepack pnpm start
 
 ## 3. 关键文档索引
 
-- `docs/quick-start.md`：从环境配置到前后端手动跑通一轮咨询流程的最短指南
+- `docs/quick-start.md`：前后端联调、环境变量与本地验证的完整快速上手指南
 - `docs/architecture.md`：系统分层、核心流程、边界与技术债
 - `docs/coze-legacy-and-env.md`：遗产兼容策略与环境变量规范
 - `docs/plan.md`：项目坐标系、阶段目标、里程碑、交付标准

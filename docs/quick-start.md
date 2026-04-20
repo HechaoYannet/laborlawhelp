@@ -13,7 +13,7 @@
 
 - Node.js 20 LTS
 - Python 3.10+
-- `uv`
+- Python 环境管理器：`uv` / `venv` / `conda` 任选其一
 - 若系统没有全局 `pnpm`，直接使用 `corepack pnpm`
 
 仓库根目录假设为：
@@ -52,7 +52,7 @@ cp .env.example .env.local
 ```env
 NEXT_PUBLIC_APP_URL=http://127.0.0.1:5000
 NEXT_PUBLIC_ENABLE_MIDDLEWARE_CHAT=true
-NEXT_PUBLIC_MIDDLEND_BASE_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_MIDDLEND_BASE_URL=http://127.0.0.1:8000/api/v1
 NEXT_PUBLIC_ENABLE_LOCAL_FALLBACK=false
 NEXT_PUBLIC_MIDDLEWARE_POLICY_VERSION=
 
@@ -64,9 +64,37 @@ PORT=5000
 
 - `NEXT_PUBLIC_ENABLE_MIDDLEWARE_CHAT=true`：让咨询页走中间件主链路。
 - `NEXT_PUBLIC_ENABLE_LOCAL_FALLBACK=false`：先不要混入本地回退，便于确认真实集成状态。
-- `NEXT_PUBLIC_MIDDLEND_BASE_URL` 指向本地后端。
+- `NEXT_PUBLIC_MIDDLEND_BASE_URL` 指向本地后端的 API 前缀，默认本地联调用 `http://127.0.0.1:8000/api/v1`。
 
-## 3. 后端初始化
+## 3.1 后端本地联调环境
+
+进入后端目录后，建议先复制模板：
+
+```bash
+cd /home/chen-hao/repositories/laborhelper/laborlawhelp-middlend/backend
+cp .env.example .env
+```
+
+本地浏览器联调至少确认下面这些值：
+
+```env
+storage_backend=memory
+auth_mode=anonymous
+oh_use_mock=true
+oh_mode=mock
+cors_allow_origins=http://localhost:5000,http://127.0.0.1:5000
+cors_allow_credentials=true
+cors_allow_methods=*
+cors_allow_headers=*
+```
+
+说明：
+
+- `cors_allow_origins` 需要覆盖前端开发地址，否则浏览器会在预检阶段拦截请求。
+- 当前本地联调默认允许 `localhost:5000` 和 `127.0.0.1:5000`。
+- 如果你把前端换到别的端口，需要同步补充这个列表。
+
+## 4. 后端初始化
 
 进入后端目录：
 
@@ -74,26 +102,43 @@ PORT=5000
 cd /home/chen-hao/repositories/laborhelper/laborlawhelp-middlend/backend
 ```
 
-后端依赖由 `uv` 按 `requirements.txt` 动态安装，不强制要求先手动建 venv。
+后端依赖安装和运行方式不绑定 `uv`。如果你已经准备好自己的 Python 环境，直接在该环境里安装 `requirements.txt` 即可。
+
+按当前联调手册，本地先复制模板并确认这些配置：
+
+```bash
+cp .env.example .env
+```
+
+```env
+storage_backend=memory
+auth_mode=anonymous
+oh_use_mock=true
+oh_mode=mock
+cors_allow_origins=http://localhost:5000,http://127.0.0.1:5000
+cors_allow_credentials=true
+cors_allow_methods=*
+cors_allow_headers=*
+```
 
 本地手动验证建议优先使用内存存储 + mock 模式：
 
 ```bash
-storage_backend=memory \
-oh_use_mock=true \
-oh_mode=library \
-uv run --with-requirements requirements.txt uvicorn app.main:app --host 127.0.0.1 --port 8000
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 说明：
 
 - `storage_backend=memory`：不用 PostgreSQL / Redis，最省事。
+- `auth_mode=anonymous`：本地联调先用匿名模式，便于直接跑通前后端。
 - `oh_use_mock=true`：不依赖真实 OpenHarness 服务，也不依赖 DeepSeek / PKULaw 连通性。
-- `oh_mode=library`：保留当前运行模式形态，但实际优先走 mock。
+- `oh_mode=mock`：与本地联调手册一致，优先走 mock。
+- `cors_allow_origins`：必须覆盖前端开发地址，否则浏览器预检会被拦截。
 
-如果你已经打开了 `backend/.env`，不用改文件，直接用上面的命令临时覆盖即可。
+如果你已经在使用自己的虚拟环境，也可以先激活环境，再执行 `python -m pip install -r requirements.txt` 和 `python -m uvicorn ...`。如果你愿意使用 `uv`，也可以在等价环境下运行相同服务，但这不是前提。
 
-## 4. 启动前端
+## 5. 启动前端
 
 新开一个终端，回到前端目录：
 
@@ -108,7 +153,7 @@ corepack pnpm dev
 http://127.0.0.1:5000
 ```
 
-## 5. 手动验证一轮咨询流程
+## 6. 手动验证一轮咨询流程
 
 打开浏览器访问：
 
@@ -140,7 +185,7 @@ mock 模式下，典型最终文本会接近：
 根据你提供的信息，先不要签署任何自愿离职文件。建议立即固定证据，包括劳动合同、工资记录和辞退沟通截图。可以先按未依法解除劳动合同方向准备仲裁材料。
 ```
 
-## 6. 验证刷新恢复
+## 7. 验证刷新恢复
 
 在同一个咨询页面完成一次问答后，直接刷新浏览器。
 
@@ -160,7 +205,7 @@ mock 模式下，典型最终文本会接近：
 - 前端 `.env.local` 是否确实启用了中间件链路
 - 后端是否还在运行
 
-## 7. API 级快速排查
+## 8. API 级快速排查
 
 如果页面异常，优先看浏览器网络面板，确认这几个请求是否成功：
 
@@ -171,7 +216,7 @@ mock 模式下，典型最终文本会接近：
 
 当前匿名模式下，前端会自己生成 `X-Anonymous-Token`，所以首轮创建 `case` 不需要等后端额外签发 token。
 
-## 8. 常见问题
+## 9. 常见问题
 
 ### 8.1 `pnpm: command not found`
 
@@ -200,20 +245,119 @@ corepack pnpm dev
 
 ### 8.4 想验证真实 OpenHarness / PKULaw，而不是 mock
 
-可以切到真实模式，但前提是：
+真实模式分两类：
 
-- `backend/.env` 中的模型 key、PKULaw token、MCP 配置都有效
-- 本机能访问模型服务
-- 本机的 PKULaw MCP 路径存在
+1. `remote`：后端作为客户端，直接请求独立部署的 OpenHarness 服务。
+2. `library`：后端进程内加载 OpenHarness runtime，不再单独跑 OpenHarness HTTP 服务。
 
-启动方式示例：
+两种模式都建议先在 `backend/.env` 中关闭 mock：
 
-```bash
-cd /home/chen-hao/repositories/laborhelper/laborlawhelp-middlend/backend
-uv run --with-requirements requirements.txt uvicorn app.main:app --host 127.0.0.1 --port 8000
+```env
+oh_use_mock=false
+oh_mode=remote
 ```
 
-真实模式下，建议再问一条需要法律依据的问题，例如：
+或者：
+
+```env
+oh_use_mock=false
+oh_mode=library
+```
+
+#### 8.4.1 remote 模式
+
+适合 OpenHarness 已经单独部署、并对外提供流式接口的场景。`backend/app/adapters/openharness_client.py` 会拼接下面这个地址：
+
+```text
+{oh_base_url}{oh_stream_path}
+```
+
+推荐配置如下：
+
+```env
+oh_mode=remote
+oh_use_mock=false
+oh_base_url=http://127.0.0.1:8080
+oh_stream_path=/api/v1/stream-run
+oh_api_key=sk-your-openharness-token
+oh_connect_timeout_sec=5
+oh_read_timeout_sec=60
+oh_first_chunk_timeout_sec=15
+oh_retry_max_attempts=3
+oh_retry_backoff_seconds=1,2,4
+oh_protocol_error_threshold=20
+```
+
+部署细节：
+
+- OpenHarness 服务必须能被后端进程所在机器访问，不能只绑定在容器内部回环地址。
+- `oh_stream_path` 必须和 OpenHarness 实际发布的流接口一致；如果你通过反向代理暴露服务，代理层也要保留这个路径。
+- `oh_api_key` 会以 `Authorization: Bearer <token>` 的形式发送给 OpenHarness。
+- 如果 OpenHarness 在内网或容器网络里，先在后端机器上用 `curl` 或浏览器验证接口可达，再启动前端。
+
+建议的启动顺序：
+
+```bash
+# 1. 启动 OpenHarness 服务 / 网关
+# 2. 确认流接口可访问
+# 3. 启动 middlend 后端
+# 4. 启动前端
+```
+
+#### 8.4.2 library 模式
+
+适合希望由 middlend 直接加载 OpenHarness runtime 的场景。此模式下，后端会在 Python 进程中构建 runtime，并使用 `backend/agent-skills` 作为额外技能目录。
+
+推荐配置如下：
+
+```env
+oh_mode=library
+oh_use_mock=false
+oh_lib_model=你的模型名
+oh_lib_api_format=openai
+oh_lib_base_url=http://127.0.0.1:8001/v1
+oh_lib_api_key=your-model-api-key
+oh_lib_max_turns=10
+oh_lib_cwd=/absolute/path/to/laborlawhelp-middlend/backend
+oh_lib_tool_policy=legal_minimal
+```
+
+部署细节：
+
+- `oh_lib_model`、`oh_lib_base_url` 和 `oh_lib_api_key` 至少要能让 OpenHarness runtime 连接到可用的大模型提供方。
+- `oh_lib_cwd` 建议指向 middlend backend 根目录，便于 runtime 解析相对路径和工具资源。
+- `backend/agent-skills/` 需要保留在工作区内，OpenHarness 会把这里的技能目录作为额外工具来源。
+- 当前代码会把权限模式强制为 `FULL_AUTO`，并默认注册本地劳动法工具，所以本地 `PKULAW_MCP_*` 和技能目录可用性很关键。
+- `oh_lib_tool_policy=legal_minimal` 适合本地联调，能保留 PKULaw、技能控制和少量本地劳动法工具。
+
+如果需要核验法律依据，还要补齐 `PKULAW_MCP_*`：
+
+```env
+PKULAW_MCP_ENABLED=true
+PKULAW_MCP_COMMAND=node
+PKULAW_MCP_ARGS=...
+PKULAW_MCP_CONFIG=...
+PKULAW_MCP_TOKEN=你的PKULaw访问令牌
+PKULAW_MCP_SERVER_NAME=pkulaw
+```
+
+#### 8.4.3 预发/正式部署建议
+
+- 前端只需要指向后端的 `/api/v1`，不需要直连 OpenHarness。
+- 后端需要和 OpenHarness、PKULaw MCP、模型服务打通网络。
+- 如果使用 `postgres` 存储，先部署 PostgreSQL 和 Redis，再启动 middlend。
+- 如果使用 `anonymous`，前端浏览器侧不需要额外登录；如果切到 `jwt`，则要先完成鉴权链路。
+- 日志里重点看 `OH_*` 错误、`SESSION_LOCKED`、`RATE_LIMITED` 和 OpenHarness 超时。
+
+#### 8.4.4 最小自检
+
+后端启动后，先检查：
+
+```bash
+curl http://127.0.0.1:8000/
+```
+
+预期返回服务状态 JSON。然后再问一条需要法律依据的问题，例如：
 
 ```text
 我被违法解除劳动合同，可以主张哪些赔偿？请给出法律依据。
@@ -225,7 +369,9 @@ uv run --with-requirements requirements.txt uvicorn app.main:app --host 127.0.0.
 - `final.references`
 - 更明确的 `rule_version`
 
-## 9. 最短验收清单
+如果走 remote 模式，OpenHarness 服务侧也应该能看到对应的流式请求日志；如果走 library 模式，则主要看 middlend 后端日志中的 `oh_library_bundle_ready`、`oh_library_submit` 和 `oh_protocol_*` 记录。
+
+## 10. 最短验收清单
 
 完成以下 6 项，就算本地 Quick Start 跑通：
 
