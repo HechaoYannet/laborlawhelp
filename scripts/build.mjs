@@ -14,8 +14,14 @@ function resolveLocalBin(binName) {
 }
 
 function runCommand(command, args) {
+  const isWindows = process.platform === 'win32';
+  const spawnCommand = isWindows ? 'cmd.exe' : command;
+  const spawnArgs = isWindows
+    ? ['/d', '/s', '/c', `${command} ${args.join(' ')}`]
+    : args;
+
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const child = spawn(spawnCommand, spawnArgs, {
       cwd: workspacePath,
       env: process.env,
       stdio: 'inherit',

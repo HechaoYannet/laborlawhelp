@@ -16,7 +16,13 @@ const tsxBin = join(
   process.platform === 'win32' ? 'tsx.cmd' : 'tsx',
 );
 
-const child = spawn(tsxBin, ['watch', 'src/server.ts'], {
+const isWindows = process.platform === 'win32';
+const command = isWindows ? 'cmd.exe' : tsxBin;
+const args = isWindows
+  ? ['/d', '/s', '/c', `${tsxBin} watch src/server.ts`]
+  : ['watch', 'src/server.ts'];
+
+const child = spawn(command, args, {
   cwd: workspacePath,
   env: {
     ...process.env,
