@@ -193,6 +193,28 @@ function formatSummary(summary?: string) {
     return summary
   }
 
+  const parsed = tryParseStructuredString(summary)
+  if (parsed !== summary) {
+    if (isRecord(parsed)) {
+      const disputeTypes = asStringArray(parsed.dispute_types)
+      const completeness =
+        typeof parsed.info_completeness === 'number'
+          ? formatPercent(parsed.info_completeness)
+          : null
+      const missingCount = Array.isArray(parsed.missing_info) ? parsed.missing_info.length : 0
+
+      const summaryParts = [
+        disputeTypes.length > 0 ? `争议类型：${disputeTypes.map(formatValueLabel).join(' / ')}` : null,
+        completeness ? `完整度：${completeness}` : null,
+        missingCount > 0 ? `待补信息：${missingCount} 项` : '信息较完整',
+      ].filter((item): item is string => Boolean(item))
+
+      return summaryParts.length > 0 ? summaryParts.join('；') : undefined
+    }
+
+    return undefined
+  }
+
   const retrievedRefsMatch = summary.match(/^retrieved\s+(\d+)\s+legal reference\(s\)$/i)
   if (retrievedRefsMatch) {
     return `已检索到 ${retrievedRefsMatch[1]} 条法律依据`

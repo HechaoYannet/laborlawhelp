@@ -33,6 +33,7 @@ import {
 import {
   useCaseStore,
   type SessionReference,
+  type SessionToolEvent,
 } from '@/hooks/use-case-store'
 import type { PanelImperativeHandle } from 'react-resizable-panels'
 
@@ -71,6 +72,68 @@ function normalizeCardActions(value: unknown): Array<{ action: string; label: st
       }
     })
     .filter((item) => item.action && item.label)
+}
+
+function normalizeToolEvents(value: unknown): SessionToolEvent[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .filter((item) => item && typeof item === 'object')
+    .reduce<SessionToolEvent[]>((events, item, index) => {
+      const event = item as Record<string, unknown>
+      const toolName = typeof event.tool_name === 'string'
+        ? event.tool_name
+        : typeof event.toolName === 'string'
+          ? event.toolName
+          : ''
+
+      if (!toolName) {
+        return events
+      }
+
+      const createdAt = typeof event.created_at === 'number'
+        ? event.created_at
+        : typeof event.createdAt === 'number'
+          ? event.createdAt
+          : Date.now() + index
+
+      events.push({
+        toolName,
+        status: 'completed' as const,
+        summary: typeof event.result_summary === 'string'
+          ? event.result_summary
+          : typeof event.summary === 'string'
+            ? event.summary
+            : undefined,
+        references: normalizeReferences(event.references),
+        cardType: typeof event.card_type === 'string'
+          ? event.card_type
+          : typeof event.cardType === 'string'
+            ? event.cardType
+            : undefined,
+        cardTitle: typeof event.card_title === 'string'
+          ? event.card_title
+          : typeof event.cardTitle === 'string'
+            ? event.cardTitle
+            : undefined,
+        cardPayload: event.card_payload && typeof event.card_payload === 'object'
+          ? event.card_payload as Record<string, unknown>
+          : event.cardPayload && typeof event.cardPayload === 'object'
+            ? event.cardPayload as Record<string, unknown>
+            : undefined,
+        cardActions: normalizeCardActions(event.card_actions ?? event.cardActions),
+        traceId: typeof event.trace_id === 'string'
+          ? event.trace_id
+          : typeof event.traceId === 'string'
+            ? event.traceId
+            : undefined,
+        createdAt,
+      })
+
+      return events
+    }, [])
 }
 
 function pickFirstString(value: unknown): string | null {
@@ -500,6 +563,16 @@ export default function LaborRightsConsultation() {
         if (cancelled) return
 
         if (history.length > 0) {
+          const restoredAssistantMessages = history.filter((message) => message.role !== 'user')
+          const restoredToolEvents = restoredAssistantMessages.flatMap((message) =>
+            normalizeToolEvents(message.metadata?.tool_events),
+          )
+          const latestAssistantMetadata =
+            [...restoredAssistantMessages]
+              .reverse()
+              .find((message) => message.metadata && typeof message.metadata === 'object')
+              ?.metadata ?? null
+
           replaceMessages(
             history.map((message) => ({
               id: message.id,
@@ -508,6 +581,34 @@ export default function LaborRightsConsultation() {
               timestamp: message.createdAt ? Date.parse(message.createdAt) || Date.now() : Date.now(),
             })),
           )
+          setSessionContext((prev) => ({
+            toolEvents: restoredToolEvents,
+            lastToolName: restoredToolEvents[restoredToolEvents.length - 1]?.toolName ?? null,
+            lastToolResultSummary: restoredToolEvents[restoredToolEvents.length - 1]?.summary ?? null,
+            finalPayload:
+              latestAssistantMetadata
+              && (
+                typeof latestAssistantMetadata.summary === 'string'
+                || Array.isArray(latestAssistantMetadata.references)
+                || typeof latestAssistantMetadata.rule_version === 'string'
+              )
+                ? {
+                    summary: typeof latestAssistantMetadata.summary === 'string'
+                      ? latestAssistantMetadata.summary
+                      : undefined,
+                    references: normalizeReferences(latestAssistantMetadata.references),
+                    ruleVersion: typeof latestAssistantMetadata.rule_version === 'string'
+                      ? latestAssistantMetadata.rule_version
+                      : undefined,
+                    finishReason: typeof latestAssistantMetadata.finish_reason === 'string'
+                      ? latestAssistantMetadata.finish_reason
+                      : undefined,
+                    traceId: typeof latestAssistantMetadata.trace_id === 'string'
+                      ? latestAssistantMetadata.trace_id
+                      : prev.traceId ?? undefined,
+                  }
+                : null,
+          }))
           return
         }
 

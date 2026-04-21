@@ -29,6 +29,7 @@ export interface MiddlewareMessage {
   role: string
   content: string
   createdAt?: string
+  metadata?: Record<string, unknown>
 }
 
 export interface MiddlewareChatRequest {
@@ -198,6 +199,7 @@ export async function listSessionMessages(
         role: typeof message.role === 'string' ? message.role : 'assistant',
         content: typeof message.content === 'string' ? message.content : '',
         createdAt: typeof message.created_at === 'string' ? message.created_at : undefined,
+        metadata: isRecord(message.metadata) ? message.metadata : undefined,
       }
     })
     .filter((item) => item.id && item.content !== '')
