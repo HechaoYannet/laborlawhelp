@@ -68,6 +68,15 @@ const FIELD_LABELS: Record<string, string> = {
   total_amount: '总金额',
   urgency: '紧急程度',
   way: '方式',
+  gender: '性别',
+  start: '开始时间',
+  end: '结束时间',
+  monthly_wage_pretax: '税前月工资',
+  monthly_wage_take_home: '税后月工资',
+  has_written_contract: '是否签订书面合同',
+  has_social_insurance: '是否缴纳社保',
+  legal_references: '法律依据',
+  retrieved_references: '检索结果',
 }
 
 const VALUE_LABELS: Record<string, string> = {
@@ -96,6 +105,19 @@ const VALUE_LABELS: Record<string, string> = {
   complaint_letter: '投诉信',
   evidence_checklist: '证据清单',
   legal_opinion: '法律意见',
+  male: '男',
+  female: '女',
+  yes: '是',
+  no: '否',
+}
+
+function normalizeKey(key: string) {
+  return key
+    .trim()
+    .replace(/([a-z])([A-Z])/g, '$1_$2')
+    .replace(/[\s-]+/g, '_')
+    .replace(/__+/g, '_')
+    .toLowerCase()
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -139,8 +161,14 @@ function tryParseStructuredString(value: string): unknown {
 }
 
 function formatFieldLabel(key: string) {
+  const normalizedKey = normalizeKey(key)
+
   if (FIELD_LABELS[key]) {
     return FIELD_LABELS[key]
+  }
+
+  if (FIELD_LABELS[normalizedKey]) {
+    return FIELD_LABELS[normalizedKey]
   }
 
   const normalized = key
@@ -157,7 +185,20 @@ function formatFieldLabel(key: string) {
 
 function formatValueLabel(value: string) {
   const trimmed = value.trim()
-  return VALUE_LABELS[trimmed] ?? trimmed
+  return VALUE_LABELS[trimmed] ?? VALUE_LABELS[normalizeKey(trimmed)] ?? trimmed
+}
+
+function formatSummary(summary?: string) {
+  if (!summary) {
+    return summary
+  }
+
+  const retrievedRefsMatch = summary.match(/^retrieved\s+(\d+)\s+legal reference\(s\)$/i)
+  if (retrievedRefsMatch) {
+    return `已检索到 ${retrievedRefsMatch[1]} 条法律依据`
+  }
+
+  return formatValueLabel(summary)
 }
 
 function formatCurrency(value: number | null) {
@@ -413,7 +454,7 @@ function renderFactSummaryCard(
   return (
     <ResultCardShell
       title={event.cardTitle || '要素提取与案情摘要'}
-      summary={event.summary}
+      summary={formatSummary(event.summary)}
       accentClassName="border-sky-200/80 text-sky-600"
       chipClassName="border-sky-200 bg-sky-50 text-sky-700"
       icon={<FileSearch className="h-5 w-5" />}
@@ -492,7 +533,7 @@ function renderCompensationCard(
   return (
     <ResultCardShell
       title={event.cardTitle || '赔偿项目测算'}
-      summary={event.summary}
+      summary={formatSummary(event.summary)}
       accentClassName="border-rose-200/80 text-rose-600"
       chipClassName="border-rose-200 bg-rose-50 text-rose-700"
       icon={<BadgeDollarSign className="h-5 w-5" />}
@@ -569,7 +610,7 @@ function renderCaseSummaryCard(
   return (
     <ResultCardShell
       title={event.cardTitle || '案情摘要卡片'}
-      summary={event.summary}
+      summary={formatSummary(event.summary)}
       accentClassName="border-emerald-200/80 text-emerald-600"
       chipClassName="border-emerald-200 bg-emerald-50 text-emerald-700"
       icon={<ScrollText className="h-5 w-5" />}
