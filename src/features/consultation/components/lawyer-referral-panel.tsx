@@ -19,9 +19,9 @@ function asArray(value: unknown): Array<Record<string, unknown>> {
 }
 
 const complexityLabels: Record<string, string> = {
-  low: '低复杂度',
-  medium: '中复杂度',
-  high: '高复杂度',
+  simple: '低复杂度',
+  moderate: '中复杂度',
+  complex: '高复杂度',
   unknown: '待判断',
 }
 

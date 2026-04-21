@@ -73,6 +73,82 @@ function normalizeCardActions(value: unknown): Array<{ action: string; label: st
     .filter((item) => item.action && item.label)
 }
 
+function pickFirstString(value: unknown): string | null {
+  if (!Array.isArray(value)) {
+    return null
+  }
+
+  for (const item of value) {
+    if (typeof item === 'string' && item.trim()) {
+      return item.trim()
+    }
+
+    if (item && typeof item === 'object') {
+      const record = item as Record<string, unknown>
+      const candidate = [record.question, record.label, record.field]
+        .find((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+      if (candidate) {
+        return candidate.trim()
+      }
+    }
+  }
+
+  return null
+}
+
+function buildCardActionPrompt(action: string, payload: Record<string, unknown>): string | null {
+  if (action === 'continue_consultation') {
+    const suggestedQuestion = pickFirstString(payload.suggested_questions)
+    const missingField = pickFirstString(payload.missing_info)
+    return suggestedQuestion
+      ? `请继续引导我补充案情，优先围绕这个问题继续：${suggestedQuestion}`
+      : missingField
+        ? `请继续引导我补充案情，优先补齐这项信息：${missingField}`
+        : '请继续引导我补充案情，并优先追问影响赔偿测算和维权路径判断的关键信息。'
+  }
+
+  if (action === 'generate_document') {
+    return '请基于当前案情和赔偿测算结果，继续为我生成适合当前阶段使用的文书，并说明我还需要补哪些材料。'
+  }
+
+  if (action === 'book_lawyer') {
+    return '请基于当前案情和转介结果，帮我生成律师预约摘要，包含争议焦点、证据现状、预估金额和我需要提前准备的问题。'
+  }
+
+  return null
+}
+
+const ASSISTANT_INTERNAL_META_PATTERNS = [
+  /我将按照劳动争议智能分诊工作流为您分析。?/g,
+  /首先，我需要加载工作流技能，然后收集更多信息(?:进行详细分析)?。?/g,
+  /我需要加载工作流技能，然后收集更多信息(?:进行详细分析)?。?/g,
+]
+
+function sanitizeAssistantText(raw: string): string {
+  let sanitized = raw
+
+  for (const pattern of ASSISTANT_INTERNAL_META_PATTERNS) {
+    sanitized = sanitized.replace(pattern, '')
+  }
+
+  const paragraphs = sanitized
+    .split(/\n{1,}/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  const dedupedParagraphs: string[] = []
+  for (const paragraph of paragraphs) {
+    const normalized = paragraph.replace(/\s+/g, ' ')
+    const previous = dedupedParagraphs[dedupedParagraphs.length - 1]
+    if (previous && previous.replace(/\s+/g, ' ') === normalized) {
+      continue
+    }
+    dedupedParagraphs.push(paragraph)
+  }
+
+  return dedupedParagraphs.join('\n\n').trim()
+}
+
 function shortenId(value: string | null | undefined) {
   if (!value) return '未创建'
   if (value.length <= 12) return value
@@ -603,7 +679,7 @@ export default function LaborRightsConsultation() {
           if (!delta) return
 
           streamedResponseRef.current += delta
-          setDisplayText(streamedResponseRef.current)
+          setDisplayText(sanitizeAssistantText(streamedResponseRef.current))
           setSessionContext((prev) => ({
             streamSeq: typeof seq === 'number' ? seq : prev.streamSeq,
           }))
@@ -750,7 +826,7 @@ export default function LaborRightsConsultation() {
       throw new Error(errorInfo.message)
     }
 
-    const finalText = streamedResponseRef.current.trim() || finalSummary || '抱歉，本次未生成有效回复，请重试。'
+    const finalText = sanitizeAssistantText(streamedResponseRef.current.trim() || finalSummary || '抱歉，本次未生成有效回复，请重试。')
     addMessage({ role: 'assistant', content: finalText })
     setDisplayText('')
     setIsThinking(false)
@@ -764,8 +840,8 @@ export default function LaborRightsConsultation() {
   }
 
   // 发送消息
-  const handleSend = async () => {
-    const content = inputValue.trim()
+  const sendMessage = async (rawContent?: string) => {
+    const content = (rawContent ?? inputValue).trim()
     if (!content || isThinking) return
 
     addMessage({ role: 'user', content })
@@ -797,6 +873,10 @@ export default function LaborRightsConsultation() {
       setDisplayText('')
       setIsThinking(false)
     }
+  }
+
+  const handleSend = async () => {
+    await sendMessage()
   }
 
   // 语音切换
@@ -939,12 +1019,9 @@ export default function LaborRightsConsultation() {
         return
       }
 
-      if (action === 'book_lawyer') {
-        setInputValue('我想预约律师咨询，请帮我生成预约摘要。')
-        requestAnimationFrame(() => {
-          resizeTextarea()
-          inputRef.current?.focus()
-        })
+      const nextPrompt = buildCardActionPrompt(action, payload)
+      if (nextPrompt) {
+        await sendMessage(nextPrompt)
       }
     } catch (error) {
       console.error('card action failed:', error)

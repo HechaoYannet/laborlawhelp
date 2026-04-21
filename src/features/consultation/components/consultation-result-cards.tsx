@@ -185,6 +185,24 @@ function renderFactSummaryCard(
     : []
   const completeness = typeof payload.info_completeness === 'number' ? payload.info_completeness : null
   const missing = asArray(payload.missing_info)
+  // 展开对象内容，避免 [object Object] 展示
+  function renderFactValue(val: unknown) {
+    if (val === null || val === undefined) return '--'
+    if (typeof val === 'object') {
+      if (Array.isArray(val)) {
+        return val.map(renderFactValue).join('，')
+      }
+      // 展开对象的 key:value
+      return (
+        <div className="text-xs text-slate-700">
+          {Object.entries(val as Record<string, unknown>).map(([k, v]) => (
+            <div key={k}><span className="font-semibold">{k}：</span>{renderFactValue(v)}</div>
+          ))}
+        </div>
+      )
+    }
+    return String(val)
+  }
   const factEntries = Object.entries(extractedFacts).filter(([, value]) => value !== null && value !== '')
 
   return (
@@ -212,7 +230,7 @@ function renderFactSummaryCard(
             {factEntries.map(([key, value]) => (
               <div key={key} className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm">
                 <p className="text-xs font-medium text-slate-500">{key}</p>
-                <p className="mt-1 text-sm leading-6 text-slate-800">{String(value)}</p>
+                <div className="mt-1 text-sm leading-6 text-slate-800">{renderFactValue(value)}</div>
               </div>
             ))}
           </div>
@@ -289,6 +307,92 @@ function renderCompensationCard(
   )
 }
 
+function renderCaseSummaryCard(
+  event: SessionToolEvent,
+  onAction?: (action: string, payload: Record<string, unknown>) => void,
+) {
+  const payload = event.cardPayload ?? {}
+  const parties = isRecord(payload.parties) ? payload.parties : {}
+  const applicant = isRecord(parties.applicant) ? parties.applicant : {}
+  const respondent = isRecord(parties.respondent) ? parties.respondent : {}
+  const employment = isRecord(payload.employment) ? payload.employment : {}
+  const termination = isRecord(payload.termination) ? payload.termination : {}
+  const dispute = isRecord(payload.dispute) ? payload.dispute : {}
+  const claims = Array.isArray(dispute.claims)
+    ? dispute.claims.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : []
+  const compensationAmount = typeof dispute.compensation_amount === 'number' ? dispute.compensation_amount : null
+  const summary = typeof dispute.summary === 'string' ? dispute.summary : ''
+  const region = typeof payload.region === 'string' ? payload.region : '待补充'
+  const generatedAt = typeof payload.generated_at === 'string' ? payload.generated_at : null
+
+  return (
+    <ResultCardShell
+      title={event.cardTitle || '案情摘要卡片'}
+      summary={event.summary}
+      accentClassName="text-emerald-600 border-emerald-200/80"
+      chipClassName="border-emerald-200 bg-emerald-50 text-emerald-700"
+      icon={<FileSearch className="h-5 w-5" />}
+      meta={compensationAmount !== null ? <Badge className="bg-emerald-100 text-emerald-700">争议金额 {formatCurrency(compensationAmount)}</Badge> : null}
+      actions={renderActions(event.cardActions, payload, onAction, 'border-emerald-200 text-emerald-700 hover:bg-emerald-50')}
+    >
+      <div className="grid gap-3 md:grid-cols-3">
+        <MetricTile label="申请人" value={typeof applicant.name === 'string' && applicant.name ? applicant.name : '待补充'} />
+        <MetricTile label="被申请人" value={typeof respondent.name === 'string' && respondent.name ? respondent.name : '待补充'} />
+        <MetricTile label="地区" value={region} />
+      </div>
+
+      <SectionBlock title="劳动关系概览">
+        <div className="grid gap-2 md:grid-cols-2">
+          <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm">
+            <p className="text-xs font-medium text-slate-500">在职期间</p>
+            <div className="mt-1 text-sm leading-6 text-slate-800">{typeof employment.period === 'string' && employment.period ? employment.period : '待补充'}</div>
+            {Object.keys(employment).length > 0 && typeof employment !== 'string' && (
+              <div className="mt-1 text-xs text-slate-500">{Object.entries(employment).map(([k, v]) => (
+                <div key={k}><span className="font-semibold">{k}：</span>{String(v)}</div>
+              ))}</div>
+            )}
+          </div>
+          <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm">
+            <p className="text-xs font-medium text-slate-500">岗位</p>
+            <div className="mt-1 text-sm leading-6 text-slate-800">{typeof employment.position === 'string' && employment.position ? employment.position : '待补充'}</div>
+          </div>
+          {Object.keys(termination).length > 0 && (
+            <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm">
+              <p className="text-xs font-medium text-slate-500">解除/终止</p>
+              <div className="mt-1 text-sm leading-6 text-slate-800">{Object.entries(termination).map(([k, v]) => (
+                <div key={k}><span className="font-semibold">{k}：</span>{String(v)}</div>
+              ))}</div>
+            </div>
+          )}
+        </div>
+      </SectionBlock>
+
+      {summary ? (
+        <SectionBlock title="争议摘要">
+          <p className="text-sm leading-6 text-slate-700">{summary}</p>
+        </SectionBlock>
+      ) : null}
+
+      {claims.length > 0 ? (
+        <SectionBlock title="当前诉求">
+          <div className="grid gap-2">
+            {claims.map((claim) => (
+              <div key={claim} className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 text-sm leading-6 text-slate-700 shadow-sm">
+                {claim}
+              </div>
+            ))}
+          </div>
+        </SectionBlock>
+      ) : null}
+
+      {generatedAt ? (
+        <p className="text-xs text-slate-500">生成时间：{generatedAt}</p>
+      ) : null}
+    </ResultCardShell>
+  )
+}
+
 function renderCard(
   event: SessionToolEvent,
   onAction?: (action: string, payload: Record<string, unknown>) => void,
@@ -315,9 +419,13 @@ function renderCard(
     )
   }
 
+  if (event.cardType === 'case_summary') {
+    return renderCaseSummaryCard(event, onAction)
+  }
+
   return (
     <DocumentPreviewPanel
-      title={event.cardTitle || '文书生成'}
+      title={typeof event.cardPayload.document_type === 'string' ? event.cardPayload.document_type : event.cardTitle || '文书生成'}
       payload={event.cardPayload}
       actions={event.cardActions || []}
       onAction={onAction}
@@ -326,8 +434,10 @@ function renderCard(
 }
 
 export function ConsultationResultCards({ events, onAction }: ConsultationResultCardsProps) {
+  // 卡片自动消失逻辑：只展示最后一轮的卡片
+  const lastCardIndex = events.length > 0 ? events.length - 1 : -1
   const completedCards = events.filter(
-    (event) => event.status === 'completed' && event.cardType && event.cardPayload,
+    (event, idx) => event.status === 'completed' && event.cardType && event.cardPayload && idx === lastCardIndex,
   )
 
   if (completedCards.length === 0) {
