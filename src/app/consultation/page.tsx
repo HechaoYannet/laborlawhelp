@@ -1050,7 +1050,7 @@ export default function LaborRightsConsultation() {
             <div className={`${avatarSizeClass} rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0`}>
               <Bot className={`${assistantIconClass} text-blue-600`} />
             </div>
-            <div className={messageWidthClass}>
+            <div className={layout === 'desktop' ? 'w-full max-w-[min(860px,100%)]' : 'w-full'}>
               <ConsultationResultCards events={sessionContext.toolEvents} onAction={handleCardAction} />
             </div>
           </div>
