@@ -254,7 +254,7 @@ export default function LaborRightsConsultation() {
   // 自动滚动到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, displayText])
+  }, [messages.length, sessionContext.toolEvents.length])
 
   const resizeTextarea = useCallback((element?: HTMLTextAreaElement) => {
     const target = element ?? inputRef.current
@@ -1127,7 +1127,13 @@ export default function LaborRightsConsultation() {
             <div className={`${avatarSizeClass} rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0`}>
               <Bot className={`${assistantIconClass} text-blue-600`} />
             </div>
-            <div className={layout === 'desktop' ? 'w-full max-w-[min(860px,100%)]' : 'w-full'}>
+            <div
+              className={
+                layout === 'desktop'
+                  ? 'w-full max-w-[min(860px,100%)]'
+                  : 'w-full min-w-0 max-w-[calc(100vw-4.75rem)] sm:max-w-[min(860px,100%)]'
+              }
+            >
               <ConsultationResultCards events={sessionContext.toolEvents} onAction={handleCardAction} />
             </div>
           </div>

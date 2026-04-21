@@ -29,7 +29,7 @@ export function DocumentPreviewPanel({ title, payload, actions, onAction }: Docu
     <Card className="relative overflow-hidden rounded-[26px] border border-emerald-200/80 bg-white/96 py-0 shadow-[0_18px_48px_rgba(15,23,42,0.08)] ring-1 ring-black/5">
       <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-emerald-500 via-emerald-300 to-transparent" />
 
-      <CardHeader className="gap-4 px-5 pt-5 pb-4 md:px-6">
+      <CardHeader className="gap-3 px-4 pb-3 pt-4 sm:gap-4 sm:px-5 sm:pb-4 sm:pt-5 md:px-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-3">
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm">
@@ -53,21 +53,21 @@ export function DocumentPreviewPanel({ title, payload, actions, onAction }: Docu
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-4 px-5 pb-5 md:px-6 md:pb-6">
+      <CardContent className="space-y-3 px-4 pb-4 sm:space-y-4 sm:px-5 sm:pb-5 md:px-6 md:pb-6">
         {content ? (
-          <section className="rounded-[24px] border border-emerald-200/80 bg-[linear-gradient(135deg,rgba(236,253,245,0.9),rgba(255,255,255,0.98))] p-4 shadow-sm">
+          <section className="rounded-[24px] border border-emerald-200/80 bg-[linear-gradient(135deg,rgba(236,253,245,0.9),rgba(255,255,255,0.98))] p-3 sm:p-4 shadow-sm">
             <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
               <FolderKanban className="h-4 w-4 text-emerald-600" />
               文书预览
             </div>
-            <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap rounded-2xl border border-white/80 bg-white/90 p-4 text-sm leading-6 text-slate-700">
+            <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap rounded-2xl border border-white/80 bg-white/90 p-3 text-sm leading-6 text-slate-700 sm:p-4">
               {content}
             </pre>
           </section>
         ) : null}
 
         {checklist.length > 0 ? (
-          <section className="rounded-2xl border border-slate-200/80 bg-slate-50/80 p-4">
+          <section className="rounded-2xl border border-slate-200/80 bg-slate-50/80 p-3 sm:p-4">
             <p className="text-sm font-semibold text-slate-900">下一步行动</p>
             <div className="mt-3 grid gap-2">
               {checklist.map((item, index) => (
@@ -79,9 +79,9 @@ export function DocumentPreviewPanel({ title, payload, actions, onAction }: Docu
           </section>
         ) : null}
 
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-3 min-[420px]:grid-cols-2">
           {standardEvidence.length > 0 ? (
-            <section className="rounded-2xl border border-slate-200/80 bg-slate-50/80 p-4">
+            <section className="rounded-2xl border border-slate-200/80 bg-slate-50/80 p-3 sm:p-4">
               <p className="text-sm font-semibold text-slate-900">标准证据</p>
               <div className="mt-3 grid gap-2">
                 {standardEvidence.slice(0, 6).map((item, index) => (
@@ -94,7 +94,7 @@ export function DocumentPreviewPanel({ title, payload, actions, onAction }: Docu
           ) : null}
 
           {missingEvidence.length > 0 ? (
-            <section className="rounded-2xl border border-amber-200/80 bg-amber-50/70 p-4">
+            <section className="rounded-2xl border border-amber-200/80 bg-amber-50/70 p-3 sm:p-4">
               <p className="text-sm font-semibold text-slate-900">建议补齐</p>
               <div className="mt-3 grid gap-2">
                 {missingEvidence.slice(0, 6).map((item, index) => (

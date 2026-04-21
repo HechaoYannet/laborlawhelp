@@ -323,7 +323,7 @@ function ResultCardShell({
     >
       <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-current/90 via-current/55 to-transparent opacity-85" />
 
-      <CardHeader className="gap-4 px-5 pb-4 pt-5 md:px-6">
+      <CardHeader className="gap-3 px-4 pb-3 pt-4 sm:gap-4 sm:px-5 sm:pb-4 sm:pt-5 md:px-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-3">
             <div
@@ -361,7 +361,7 @@ function ResultCardShell({
         ) : null}
       </CardHeader>
 
-      <CardContent className="space-y-4 px-5 pb-5 md:px-6 md:pb-6">
+      <CardContent className="space-y-3 px-4 pb-4 sm:space-y-4 sm:px-5 sm:pb-5 md:px-6 md:pb-6">
         {children}
 
         {actions ? (
@@ -406,7 +406,7 @@ function SectionBlock({
   children: ReactNode
 }) {
   return (
-    <section className={cn('rounded-2xl border border-slate-200/80 bg-slate-50/75 p-4', toneClassName)}>
+    <section className={cn('rounded-2xl border border-slate-200/80 bg-slate-50/75 p-3 sm:p-4', toneClassName)}>
       <p className="text-sm font-semibold text-slate-900">{title}</p>
       <div className="mt-3">{children}</div>
     </section>
@@ -470,7 +470,7 @@ function renderFactSummaryCard(
         'border-sky-200 text-sky-700 hover:bg-sky-50',
       )}
     >
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-2.5 min-[420px]:grid-cols-2">
         <MetricTile label="争议类型" value={disputeTypes.length > 0 ? disputeTypes.map(formatValueLabel).join(' / ') : '待补充'} />
         <MetricTile
           label="待补字段"
@@ -485,7 +485,7 @@ function renderFactSummaryCard(
 
       {factEntries.length > 0 ? (
         <SectionBlock title="已识别关键信息">
-          <div className="grid gap-2 md:grid-cols-2">
+          <div className="grid gap-2 min-[420px]:grid-cols-2">
             {factEntries.map(([key, value]) => (
               <div key={key} className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm">
                 <p className="text-xs font-medium text-slate-500">{formatFieldLabel(key)}</p>
@@ -559,7 +559,7 @@ function renderCompensationCard(
 
       {calculations.length > 0 ? (
         <SectionBlock title="分项明细">
-          <div className="grid gap-3">
+          <div className="grid gap-2.5">
             {calculations.map((item, index) => (
               <div
                 key={`${index}-${String(item.item ?? '')}`}
@@ -628,14 +628,14 @@ function renderCaseSummaryCard(
         'border-emerald-200 text-emerald-700 hover:bg-emerald-50',
       )}
     >
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-2.5 min-[420px]:grid-cols-2 md:grid-cols-3">
         <MetricTile label="申请人" value={typeof applicant.name === 'string' && applicant.name ? applicant.name : '待补充'} />
         <MetricTile label="被申请人" value={typeof respondent.name === 'string' && respondent.name ? respondent.name : '待补充'} />
         <MetricTile label="地区" value={region} />
       </div>
 
       <SectionBlock title="劳动关系概览">
-        <div className="grid gap-2 md:grid-cols-2">
+        <div className="grid gap-2 min-[420px]:grid-cols-2">
           <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm">
             <p className="text-xs font-medium text-slate-500">在职期间</p>
             <div className="mt-1 text-sm leading-6 text-slate-800">{renderValue(employment.period, 'period')}</div>
