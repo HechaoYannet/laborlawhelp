@@ -448,9 +448,8 @@ PKULAW_MCP_CONFIG=/home/chen-hao/repositories/laborhelper/laborlawhelp-middlend/
 - `backend/agent-skills/` 需要保留在工作区内，OpenHarness 会把这里的技能目录作为额外工具来源。
 - 当前代码会把权限模式强制为 `FULL_AUTO`，并默认注册本地劳动法工具，所以本地 `PKULAW_MCP_*` 和技能目录可用性很关键。
 - `oh_lib_tool_policy=legal_minimal` 适合本地联调，能保留 skill、PKULaw 检索，以及少量本地劳动法工具。
-- `PKULAW_MCP_COMMAND` 填的是“启动器”，不是 `pkulaw-mcp-router` 包名本身。`pkulaw-mcp-router` 是放在 `PKULAW_MCP_ARGS` 里的被执行目标；如果本机 `npx` 已在 PATH 上，也可以把 `PKULAW_MCP_COMMAND` 简写成 `npx`，并把 `PKULAW_MCP_ARGS` 保持为空。
 
-> **PKULAW_MCP_COMMAND 与 PKULAW_MCP_ARGS 的修改注意**
+> **PKULAW_MCP_COMMAND 与 PKULAW_MCP_ARGS 的填写注意**
 >
 > 当 `PKULAW_MCP_ARGS` 为空时，OpenHarness 会 fallback 到一组 **npx 专用**的默认参数：
 >
@@ -466,16 +465,18 @@ PKULAW_MCP_CONFIG=/home/chen-hao/repositories/laborhelper/laborlawhelp-middlend/
 >
 > 推荐的两种写法：
 >
-> 写法一：直接用 `npx`（推荐，最简单）：
+> 写法一：下载仓库pku-mcp-router（推荐）：
 >
-> ```env
-> PKULAW_MCP_COMMAND=npx
-> PKULAW_MCP_ARGS=
+> ```text
+> https://github.com/Liu8Can/pkulaw-mcp-router.git
+> 然后在.env中直接调用本地文件dist/index.js(编写主要参考了该仓库格式)：
+> PKULAW_MCP_COMMAND=node
+> PKULAW_MCP_ARGS=/absolute/path/to/pkulaw-mcp-router/dist/index.js serve --config /absolute/path/to/laborlawhelp-middlend/backend/pkulaw-config.toml
 > ```
 >
-> 此时 `PKULAW_MCP_ARGS` 留空即可，代码会自动拼好 npx 参数。
+>请改成你本地的绝对路径。
 >
-> 写法二：通过 `/usr/bin/env` 注入 PATH 后调用 `npx`：
+> 写法二：通过 `/usr/bin/env` 注入 PATH 后调用 `npx`：(不太推荐，仅在开发时成功，复用性差)
 >
 > ```env
 > PKULAW_MCP_COMMAND=/usr/bin/env
@@ -484,10 +485,6 @@ PKULAW_MCP_CONFIG=/home/chen-hao/repositories/laborhelper/laborlawhelp-middlend/
 >
 > 注意 `PKULAW_MCP_ARGS` 里的完整参数会经过 `shlex.split()` 拆分，所以不要额外加引号包裹整行。
 
-如果你自己的 Python 环境不是通过上面的 `uv run --with-editable ../../OpenHarness` 启动，也要保证至少满足其一：
-
-- 已把 `../../OpenHarness` 以 editable 方式安装进当前环境。
-- 或者把 `../../OpenHarness/src` 放进 `PYTHONPATH`。
 
 #### 8.4.3 预发/正式部署建议
 
@@ -530,7 +527,7 @@ curl http://127.0.0.1:8000/
 5. 页面能收到流式回复
 6. 刷新后历史消息仍能恢复
 
-## 11. OpenHarness 环境如何与中间件协同
+## 11. OpenHarness 环境如何与中间件协同（library 模式流程解释）
 
 这一节只针对 `library` 模式。
 
