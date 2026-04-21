@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useSpeechRecognition } from '@/hooks/use-speech-recognition'
@@ -194,22 +194,65 @@ function sanitizeAssistantText(raw: string): string {
     sanitized = sanitized.replace(pattern, '')
   }
 
-  const paragraphs = sanitized
-    .split(/\n{1,}/)
-    .map((part) => part.trim())
-    .filter(Boolean)
+  const normalizedNewlines = sanitized.replace(/\r\n/g, '\n')
+  const lines = normalizedNewlines.split('\n')
+  const compactedLines: string[] = []
 
-  const dedupedParagraphs: string[] = []
-  for (const paragraph of paragraphs) {
-    const normalized = paragraph.replace(/\s+/g, ' ')
-    const previous = dedupedParagraphs[dedupedParagraphs.length - 1]
-    if (previous && previous.replace(/\s+/g, ' ') === normalized) {
+  for (const line of lines) {
+    const previous = compactedLines[compactedLines.length - 1]
+    const trimmed = line.trim()
+
+    if (trimmed === '' && previous === '') {
       continue
     }
-    dedupedParagraphs.push(paragraph)
+
+    if (
+      trimmed !== '' &&
+      previous &&
+      previous.trim() !== '' &&
+      previous.trim().replace(/\s+/g, ' ') === trimmed.replace(/\s+/g, ' ')
+    ) {
+      continue
+    }
+
+    compactedLines.push(trimmed === '' ? '' : line)
   }
 
-  return dedupedParagraphs.join('\n\n').trim()
+  return compactedLines.join('\n').trim()
+}
+
+function splitStableMarkdown(raw: string): { rendered: string; pending: string } {
+  if (!raw.trim()) {
+    return { rendered: '', pending: '' }
+  }
+
+  const fenceMatches = raw.match(/```/g)
+  const hasUnclosedFence = Boolean(fenceMatches && fenceMatches.length % 2 === 1)
+  if (hasUnclosedFence) {
+    const lastFenceIndex = raw.lastIndexOf('```')
+    return {
+      rendered: raw.slice(0, Math.max(0, lastFenceIndex)).trim(),
+      pending: raw.slice(Math.max(0, lastFenceIndex)).trim(),
+    }
+  }
+
+  const lastDoubleBreak = raw.lastIndexOf('\n\n')
+  if (lastDoubleBreak >= 0) {
+    return {
+      rendered: raw.slice(0, lastDoubleBreak).trim(),
+      pending: raw.slice(lastDoubleBreak + 2).trim(),
+    }
+  }
+
+  return { rendered: '', pending: raw.trim() }
+}
+
+function getMarkdownClassName(textClass: string, role: 'user' | 'assistant') {
+  return `${textClass} whitespace-normal break-words [word-break:break-word] [&_p]:mb-2 [&_p:last-child]:mb-0 [&_ul]:mb-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:mb-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mb-1 [&_li]:last:mb-0 [&_h1]:mb-2 [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mb-1 [&_h3]:font-semibold [&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:px-3 [&_pre]:py-2 [&_pre]:font-mono [&_pre]:text-[0.92em] [&_code]:rounded [&_code]:px-1 [&_code]:py-0.5 [&_table]:my-2 [&_table]:w-full [&_table]:border-collapse [&_table]:overflow-hidden [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_td]:border [&_td]:px-2 [&_td]:py-1 ${
+    role === 'user'
+      ? '[&_a]:text-white [&_a]:underline [&_blockquote]:border-white/50 [&_pre]:bg-blue-700/70 [&_code]:bg-blue-700/70 [&_th]:border-white/30 [&_td]:border-white/30'
+      : '[&_a]:text-blue-700 [&_a]:underline [&_blockquote]:border-slate-300 [&_pre]:bg-slate-100 [&_code]:bg-slate-100 [&_th]:border-slate-300 [&_td]:border-slate-300'
+  }`
 }
 
 function shortenId(value: string | null | undefined) {
@@ -251,6 +294,8 @@ function isSessionNotFoundError(error: unknown) {
   return /session not found|会话不存在|SESSION_NOT_FOUND/i.test(error.message)
 }
 
+type FollowMode = 'none' | 'bottom' | 'streaming'
+
 export default function LaborRightsConsultation() {
   const middlewareModeEnabled = process.env.NEXT_PUBLIC_ENABLE_MIDDLEWARE_CHAT === 'true'
   const middlewarePolicyVersion =
@@ -288,12 +333,20 @@ export default function LaborRightsConsultation() {
   } = useCaseStore()
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const desktopInputRef = useRef<HTMLTextAreaElement>(null)
+  const mobileInputRef = useRef<HTMLTextAreaElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const streamingBubbleRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLDivElement>(null)
   const sidebarPanelRef = useRef<PanelImperativeHandle | null>(null)
   const lastMessageCountRef = useRef(0)
+  const lastToolEventCountRef = useRef(0)
   const streamedResponseRef = useRef('')
+  const isNearBottomRef = useRef(true)
+  const shouldFollowStreamingBubbleRef = useRef(true)
+  const followModeRef = useRef<FollowMode>('bottom')
+  const programmaticScrollUntilRef = useRef(0)
+  const userScrollHoldUntilRef = useRef(0)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
 
   const {
@@ -316,11 +369,33 @@ export default function LaborRightsConsultation() {
 
   // 自动滚动到底部
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages.length, sessionContext.toolEvents.length])
+    isNearBottomRef.current = isNearBottom
+  }, [isNearBottom])
 
-  const resizeTextarea = useCallback((element?: HTMLTextAreaElement) => {
-    const target = element ?? inputRef.current
+  useEffect(() => {
+    const hasNewMessage = messages.length > lastMessageCountRef.current
+    const hasNewToolEvent = sessionContext.toolEvents.length > lastToolEventCountRef.current
+
+    if ((hasNewMessage || hasNewToolEvent) && isNearBottomRef.current) {
+      followModeRef.current = 'bottom'
+      shouldFollowStreamingBubbleRef.current = hasNewMessage && isThinking
+      userScrollHoldUntilRef.current = 0
+
+      const container = scrollContainerRef.current
+      if (container) {
+        programmaticScrollUntilRef.current = Date.now() + 240
+        container.scrollTo({ top: container.scrollHeight - container.clientHeight, behavior: 'smooth' })
+      } else {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+      }
+    }
+
+    lastMessageCountRef.current = messages.length
+    lastToolEventCountRef.current = sessionContext.toolEvents.length
+  }, [isThinking, messages.length, sessionContext.toolEvents.length])
+
+  const resizeTextarea = useCallback((element?: HTMLTextAreaElement | null) => {
+    const target = element ?? desktopInputRef.current ?? mobileInputRef.current
     if (!target) return
 
     const maxHeight = isWideScreen ? 260 : isCompactLandscape ? 132 : 180
@@ -330,10 +405,72 @@ export default function LaborRightsConsultation() {
     target.style.overflowY = target.scrollHeight > maxHeight ? 'auto' : 'hidden'
   }, [isCompactLandscape, isWideScreen])
 
+  const resizeAllTextareas = useCallback(() => {
+    resizeTextarea(desktopInputRef.current)
+    resizeTextarea(mobileInputRef.current)
+  }, [resizeTextarea])
+
+  const scrollContainerTo = useCallback((top: number, behavior: ScrollBehavior = 'smooth') => {
+    const container = scrollContainerRef.current
+    if (!container) return
+
+    const maxTop = Math.max(0, container.scrollHeight - container.clientHeight)
+    const nextTop = Math.max(0, Math.min(top, maxTop))
+    programmaticScrollUntilRef.current = Date.now() + (behavior === 'smooth' ? 240 : 80)
+    container.scrollTo({ top: nextTop, behavior })
+  }, [])
+
+  const getEffectiveViewportBounds = useCallback((container: HTMLDivElement) => {
+    const containerRect = container.getBoundingClientRect()
+    const viewportBottom = window.innerHeight
+    const overlayTop = viewportBottom - composerHeight
+    const effectiveBottom = Math.min(containerRect.bottom, overlayTop > containerRect.top ? overlayTop : containerRect.bottom)
+
+    return {
+      top: containerRect.top,
+      bottom: effectiveBottom,
+      height: Math.max(0, effectiveBottom - containerRect.top),
+    }
+  }, [composerHeight])
+
+  const getStreamingBubbleMetrics = useCallback((container: HTMLDivElement, bubble: HTMLDivElement) => {
+    const viewportRect = getEffectiveViewportBounds(container)
+    const bubbleRect = bubble.getBoundingClientRect()
+    const followMargin = Math.max(20, Math.min(48, viewportRect.height * 0.08))
+    const observationTop = viewportRect.top + viewportRect.height * 0.42
+    const observationBottom = viewportRect.bottom - followMargin
+    const bubbleBottomVisible =
+      bubbleRect.bottom >= viewportRect.top &&
+      bubbleRect.bottom <= viewportRect.bottom
+    const bubbleBottomInObservationBand =
+      bubbleRect.bottom >= observationTop &&
+      bubbleRect.bottom <= observationBottom
+
+    return {
+      bubbleBottomVisible,
+      bubbleBottomInObservationBand,
+      desiredScrollTop: container.scrollTop + (bubbleRect.bottom - observationBottom),
+    }
+  }, [getEffectiveViewportBounds])
+
   // 输入框自动高度（达到上限后显示滚动条）
-  useEffect(() => {
-    resizeTextarea()
-  }, [inputValue, resizeTextarea])
+  useLayoutEffect(() => {
+    resizeAllTextareas()
+  }, [inputValue, isCompactLandscape, isWideScreen, resizeAllTextareas])
+
+  const followStreamingBubble = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    const container = scrollContainerRef.current
+    const bubble = streamingBubbleRef.current
+    if (!container || !bubble) return false
+
+    const { desiredScrollTop } = getStreamingBubbleMetrics(container, bubble)
+    if (Math.abs(desiredScrollTop - container.scrollTop) < 1) {
+      return true
+    }
+
+    scrollContainerTo(desiredScrollTop, behavior)
+    return true
+  }, [getStreamingBubbleMetrics, scrollContainerTo])
 
   // 大屏与横屏状态
   useEffect(() => {
@@ -407,14 +544,44 @@ export default function LaborRightsConsultation() {
     const container = scrollContainerRef.current
     if (!container) return
 
+    const cancelFollowOnUserIntent = () => {
+      programmaticScrollUntilRef.current = 0
+      container.scrollTo({ top: container.scrollTop, behavior: 'auto' })
+      followModeRef.current = 'none'
+      shouldFollowStreamingBubbleRef.current = false
+      userScrollHoldUntilRef.current = Date.now() + 700
+    }
+
     const updateScrollButtonState = () => {
       const hiddenThreshold = isCompactLandscape ? 50 : isLandscape ? 90 : 120
       const showThreshold = isCompactLandscape ? 140 : isLandscape ? 220 : 300
       const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight
       const hasEnoughMessages = messages.length > 3
       const nearBottom = distanceToBottom <= hiddenThreshold
+      const isUserHoldActive = Date.now() < userScrollHoldUntilRef.current
 
       setIsNearBottom(nearBottom)
+      isNearBottomRef.current = nearBottom
+      if (nearBottom && !isUserHoldActive) {
+        followModeRef.current = isThinking ? 'streaming' : 'bottom'
+        shouldFollowStreamingBubbleRef.current = isThinking
+      } else if (followModeRef.current === 'bottom') {
+        followModeRef.current = 'none'
+        shouldFollowStreamingBubbleRef.current = false
+      }
+
+      if (isThinking && streamingBubbleRef.current && !isUserHoldActive) {
+        const { bubbleBottomVisible, bubbleBottomInObservationBand } = getStreamingBubbleMetrics(container, streamingBubbleRef.current)
+
+        if (!nearBottom && bubbleBottomInObservationBand) {
+          followModeRef.current = 'streaming'
+          shouldFollowStreamingBubbleRef.current = true
+        } else if (!nearBottom && !bubbleBottomVisible && followModeRef.current !== 'bottom') {
+          followModeRef.current = 'none'
+          shouldFollowStreamingBubbleRef.current = false
+        }
+      }
+
       if (nearBottom) {
         setUnreadCount(0)
       }
@@ -431,24 +598,51 @@ export default function LaborRightsConsultation() {
       }
     }
 
+    container.addEventListener('wheel', cancelFollowOnUserIntent, { passive: true })
+    container.addEventListener('touchmove', cancelFollowOnUserIntent, { passive: true })
+    container.addEventListener('pointerdown', cancelFollowOnUserIntent, { passive: true })
     container.addEventListener('scroll', updateScrollButtonState)
     updateScrollButtonState()
-    return () => container.removeEventListener('scroll', updateScrollButtonState)
-  }, [messages.length, isLandscape, isCompactLandscape, unreadCount])
+    return () => {
+      container.removeEventListener('wheel', cancelFollowOnUserIntent)
+      container.removeEventListener('touchmove', cancelFollowOnUserIntent)
+      container.removeEventListener('pointerdown', cancelFollowOnUserIntent)
+      container.removeEventListener('scroll', updateScrollButtonState)
+    }
+  }, [getStreamingBubbleMetrics, isThinking, messages.length, isLandscape, isCompactLandscape, unreadCount])
 
   // 未读消息计数（未在底部时新增消息累加）
   useEffect(() => {
-    if (lastMessageCountRef.current === 0) {
-      lastMessageCountRef.current = messages.length
-      return
-    }
-
     if (messages.length > lastMessageCountRef.current && !isNearBottom) {
       setUnreadCount((count) => count + (messages.length - lastMessageCountRef.current))
     }
-
-    lastMessageCountRef.current = messages.length
   }, [messages.length, isNearBottom])
+
+  useEffect(() => {
+    if (!isThinking || !displayText) return
+
+    const container = scrollContainerRef.current
+    const bubble = streamingBubbleRef.current
+    if (!container || !bubble) return
+
+    if (followModeRef.current === 'streaming' || (followModeRef.current === 'bottom' && isNearBottomRef.current)) {
+      shouldFollowStreamingBubbleRef.current = true
+      followModeRef.current = 'streaming'
+      followStreamingBubble('smooth')
+      return
+    }
+
+    if (Date.now() < userScrollHoldUntilRef.current) {
+      return
+    }
+
+    const { bubbleBottomInObservationBand } = getStreamingBubbleMetrics(container, bubble)
+    if (bubbleBottomInObservationBand) {
+      followModeRef.current = 'streaming'
+      shouldFollowStreamingBubbleRef.current = true
+      followStreamingBubble('smooth')
+    }
+  }, [displayText, followStreamingBubble, getStreamingBubbleMetrics, isThinking])
 
   // 语音输入同步到输入框
   useEffect(() => {
@@ -947,8 +1141,19 @@ export default function LaborRightsConsultation() {
 
     addMessage({ role: 'user', content })
     setInputValue('')
+    if (desktopInputRef.current) {
+      desktopInputRef.current.value = ''
+      desktopInputRef.current.style.height = 'auto'
+      desktopInputRef.current.style.overflowY = 'hidden'
+    }
+    if (mobileInputRef.current) {
+      mobileInputRef.current.value = ''
+      mobileInputRef.current.style.height = 'auto'
+      mobileInputRef.current.style.overflowY = 'hidden'
+    }
+    resizeAllTextareas()
     requestAnimationFrame(() => {
-      resizeTextarea()
+      resizeAllTextareas()
     })
     setIsThinking(true)
 
@@ -998,7 +1203,15 @@ export default function LaborRightsConsultation() {
   }
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    followModeRef.current = isThinking ? 'streaming' : 'bottom'
+    shouldFollowStreamingBubbleRef.current = isThinking
+    userScrollHoldUntilRef.current = 0
+    const container = scrollContainerRef.current
+    if (container) {
+      scrollContainerTo(container.scrollHeight - container.clientHeight, 'smooth')
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
     setUnreadCount(0)
   }
 
@@ -1165,6 +1378,7 @@ export default function LaborRightsConsultation() {
     const textClass = layout === 'desktop' ? 'text-[15px] leading-7' : bubbleTextClass
     const bubbleClass = layout === 'desktop' ? 'px-5 py-4' : bubblePaddingClass
     const thinkingTextClass = layout === 'desktop' ? 'text-sm' : isCompactLandscape ? 'text-xs' : 'text-sm'
+    const streamingMarkdown = splitStableMarkdown(displayText)
     return (
       <>
         {messages.map((message, index) => (
@@ -1184,13 +1398,7 @@ export default function LaborRightsConsultation() {
                   : 'bg-white border border-slate-200 text-slate-700 rounded-tl-sm shadow-sm'
               }`}
             >
-              <div
-                className={`${textClass} whitespace-normal break-words [word-break:break-word] [&_p]:mb-2 [&_p:last-child]:mb-0 [&_ul]:mb-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:mb-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mb-1 [&_li]:last:mb-0 [&_h1]:mb-2 [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mb-1 [&_h3]:font-semibold [&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:px-3 [&_pre]:py-2 [&_pre]:font-mono [&_pre]:text-[0.92em] [&_code]:rounded [&_code]:px-1 [&_code]:py-0.5 [&_table]:my-2 [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_td]:border [&_td]:px-2 [&_td]:py-1 ${
-                  message.role === 'user'
-                    ? '[&_a]:text-white [&_a]:underline [&_blockquote]:border-white/50 [&_pre]:bg-blue-700/70 [&_code]:bg-blue-700/70 [&_th]:border-white/30 [&_td]:border-white/30'
-                    : '[&_a]:text-blue-700 [&_a]:underline [&_blockquote]:border-slate-300 [&_pre]:bg-slate-100 [&_code]:bg-slate-100 [&_th]:border-slate-300 [&_td]:border-slate-300'
-                }`}
-              >
+              <div className={getMarkdownClassName(textClass, message.role === 'user' ? 'user' : 'assistant')}>
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
               </div>
             </div>
@@ -1207,12 +1415,21 @@ export default function LaborRightsConsultation() {
             <div className={`${avatarSizeClass} rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0`}>
               <Bot className={`${assistantIconClass} text-blue-600`} />
             </div>
-            <div className={`bg-white border border-slate-200 rounded-2xl rounded-tl-sm ${bubbleClass} shadow-sm min-h-[44px]`}>
+            <div ref={streamingBubbleRef} className={`bg-white border border-slate-200 rounded-2xl rounded-tl-sm ${bubbleClass} shadow-sm min-h-[44px]`}>
               {displayText ? (
-                <p className={`${textClass} whitespace-pre-wrap`}>
-                  {displayText}
-                  <span className="inline-block w-2 h-4 bg-blue-600 ml-1 animate-pulse" />
-                </p>
+                <div className={getMarkdownClassName(textClass, 'assistant')}>
+                  {streamingMarkdown.rendered ? (
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingMarkdown.rendered}</ReactMarkdown>
+                  ) : null}
+                  {streamingMarkdown.pending ? (
+                    <p className="whitespace-pre-wrap">
+                      {streamingMarkdown.pending}
+                      <span className="ml-1 inline-block h-4 w-2 animate-pulse bg-blue-600" />
+                    </p>
+                  ) : (
+                    <span className="ml-1 inline-block h-4 w-2 animate-pulse bg-blue-600" />
+                  )}
+                </div>
               ) : (
                 <div className="flex items-center gap-2 text-slate-500">
                   <Bot className={`${assistantIconClass}`} />
@@ -1778,7 +1995,7 @@ export default function LaborRightsConsultation() {
                   <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4">
                     <div className="space-y-3">
                       <textarea
-                        ref={inputRef}
+                        ref={desktopInputRef}
                         value={inputValue}
                         onChange={(e) => {
                           setInputValue(e.target.value)
@@ -1930,7 +2147,7 @@ export default function LaborRightsConsultation() {
 
             <div ref={composerRef} className={`w-full pointer-events-auto relative rounded-2xl border border-slate-200 bg-white/95 backdrop-blur-md ${isCompactLandscape ? 'px-2.5 py-2.5' : 'px-3 py-3 md:px-4 md:py-4'} shadow-xl shadow-slate-300/40`}>
             <textarea
-              ref={inputRef}
+              ref={mobileInputRef}
               value={inputValue}
               onChange={(e) => {
                 setInputValue(e.target.value)
