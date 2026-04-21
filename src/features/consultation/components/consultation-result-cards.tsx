@@ -1,17 +1,12 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { SessionToolEvent } from '@/hooks/use-case-store'
 import { cn } from '@/lib/utils'
-import {
-  BadgeDollarSign,
-  CircleAlert,
-  FileSearch,
-  Sparkles,
-} from 'lucide-react'
+import { BadgeDollarSign, CircleAlert, FileSearch, ScrollText, Sparkles, Users } from 'lucide-react'
 import { DocumentPreviewPanel } from './document-preview-panel'
 import { LawyerReferralPanel } from './lawyer-referral-panel'
 
@@ -24,25 +19,69 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {}
+}
+
 function asArray(value: unknown): Array<Record<string, unknown>> {
-  if (!Array.isArray(value)) {
-    return []
-  }
-  return value.filter((item): item is Record<string, unknown> => isRecord(item))
+  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => isRecord(item)) : []
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : []
 }
 
 function formatCurrency(value: number | null) {
-  if (value === null) {
-    return '--'
-  }
-  return `¥${value.toLocaleString('zh-CN')}`
+  return value === null ? '--' : `¥${value.toLocaleString('zh-CN')}`
 }
 
 function formatPercent(value: number | null) {
-  if (value === null) {
+  return value === null ? '--' : `${Math.round(value * 100)}%`
+}
+
+function renderValue(value: unknown): ReactNode {
+  if (value === null || value === undefined || value === '') {
     return '--'
   }
-  return `${Math.round(value * 100)}%`
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
+  }
+
+  if (typeof value === 'string') {
+    return value
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return '--'
+    }
+
+    return (
+      <div className="space-y-1.5">
+        {value.map((item, index) => (
+          <div key={index} className="rounded-xl border border-slate-200/70 bg-slate-50/80 px-3 py-2">
+            {renderValue(item)}
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  if (isRecord(value)) {
+    return (
+      <div className="space-y-1.5">
+        {Object.entries(value).map(([key, entry]) => (
+          <div key={key} className="rounded-xl border border-slate-200/70 bg-slate-50/80 px-3 py-2">
+            <div className="text-xs font-medium text-slate-500">{key}</div>
+            <div className="mt-1 text-sm leading-6 text-slate-700">{renderValue(entry)}</div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  return String(value)
 }
 
 function ResultCardShell({
@@ -67,7 +106,7 @@ function ResultCardShell({
   return (
     <Card
       className={cn(
-        'group relative overflow-hidden rounded-[26px] border bg-white/96 py-0 shadow-[0_18px_48px_rgba(15,23,42,0.08)] ring-1 ring-black/5 backdrop-blur transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_56px_rgba(15,23,42,0.12)]',
+        'group relative overflow-hidden rounded-[26px] border bg-white/96 py-0 shadow-[0_18px_48px_rgba(15,23,42,0.08)] ring-1 ring-black/5 backdrop-blur transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_22px_56px_rgba(15,23,42,0.12)]',
         accentClassName,
       )}
     >
@@ -82,7 +121,7 @@ function ResultCardShell({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge className={cn('rounded-full border px-2.5 py-1 text-[11px] font-semibold', chipClassName)} variant="outline">
-                  工具结果
+                  结构化结果
                 </Badge>
                 {meta}
               </div>
@@ -113,19 +152,11 @@ function ResultCardShell({
   )
 }
 
-function MetricTile({
-  label,
-  value,
-  toneClassName,
-}: {
-  label: string
-  value: string
-  toneClassName?: string
-}) {
+function MetricTile({ label, value, toneClassName }: { label: string; value: ReactNode; toneClassName?: string }) {
   return (
     <div className={cn('rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm', toneClassName)}>
       <p className="text-[11px] font-medium tracking-[0.12em] text-slate-500 uppercase">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-slate-900 md:text-base">{value}</p>
+      <div className="mt-1 text-sm font-semibold text-slate-900 md:text-base">{value}</div>
     </div>
   )
 }
@@ -153,7 +184,7 @@ function renderActions(
   onAction?: (action: string, payload: Record<string, unknown>) => void,
   accentClassName?: string,
 ) {
-  if (!actions || actions.length === 0) {
+  if (!actions?.length) {
     return null
   }
 
@@ -163,10 +194,7 @@ function renderActions(
       type="button"
       size="sm"
       variant="outline"
-      className={cn(
-        'h-9 rounded-full border bg-white px-4 text-sm text-slate-700 shadow-sm hover:bg-slate-50',
-        accentClassName,
-      )}
+      className={cn('h-9 rounded-full border bg-white px-4 text-sm text-slate-700 shadow-sm hover:bg-slate-50', accentClassName)}
       onClick={() => onAction?.(action.action, payload)}
     >
       {action.label}
@@ -174,35 +202,12 @@ function renderActions(
   ))
 }
 
-function renderFactSummaryCard(
-  event: SessionToolEvent,
-  onAction?: (action: string, payload: Record<string, unknown>) => void,
-) {
-  const payload = event.cardPayload ?? {}
-  const extractedFacts = isRecord(payload.extracted_facts) ? payload.extracted_facts : {}
-  const disputeTypes = Array.isArray(payload.dispute_types)
-    ? payload.dispute_types.filter((item): item is string => typeof item === 'string')
-    : []
+function renderFactSummaryCard(event: SessionToolEvent, onAction?: (action: string, payload: Record<string, unknown>) => void) {
+  const payload = asRecord(event.cardPayload)
+  const extractedFacts = asRecord(payload.extracted_facts)
+  const disputeTypes = asStringArray(payload.dispute_types)
   const completeness = typeof payload.info_completeness === 'number' ? payload.info_completeness : null
   const missing = asArray(payload.missing_info)
-  // 展开对象内容，避免 [object Object] 展示
-  function renderFactValue(val: unknown) {
-    if (val === null || val === undefined) return '--'
-    if (typeof val === 'object') {
-      if (Array.isArray(val)) {
-        return val.map(renderFactValue).join('，')
-      }
-      // 展开对象的 key:value
-      return (
-        <div className="text-xs text-slate-700">
-          {Object.entries(val as Record<string, unknown>).map(([k, v]) => (
-            <div key={k}><span className="font-semibold">{k}：</span>{renderFactValue(v)}</div>
-          ))}
-        </div>
-      )
-    }
-    return String(val)
-  }
   const factEntries = Object.entries(extractedFacts).filter(([, value]) => value !== null && value !== '')
 
   return (
@@ -219,8 +224,8 @@ function renderFactSummaryCard(
         <MetricTile label="争议类型" value={disputeTypes.length > 0 ? disputeTypes.join(' / ') : '待补充'} />
         <MetricTile
           label="待补字段"
-          value={missing.length > 0 ? `${missing.length} 项` : '已较完整'}
-          toneClassName={missing.length > 0 ? 'bg-amber-50/90 border-amber-200/80' : 'bg-emerald-50/90 border-emerald-200/80'}
+          value={missing.length > 0 ? `${missing.length} 项` : '较完整'}
+          toneClassName={missing.length > 0 ? 'border-amber-200/80 bg-amber-50/90' : 'border-emerald-200/80 bg-emerald-50/90'}
         />
       </div>
 
@@ -230,7 +235,7 @@ function renderFactSummaryCard(
             {factEntries.map(([key, value]) => (
               <div key={key} className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm">
                 <p className="text-xs font-medium text-slate-500">{key}</p>
-                <div className="mt-1 text-sm leading-6 text-slate-800">{renderFactValue(value)}</div>
+                <div className="mt-1 text-sm leading-6 text-slate-800">{renderValue(value)}</div>
               </div>
             ))}
           </div>
@@ -241,7 +246,7 @@ function renderFactSummaryCard(
         <SectionBlock title="建议优先补充" toneClassName="border-amber-200/80 bg-amber-50/70">
           <div className="grid gap-2">
             {missing.map((item, index) => (
-              <div key={`${index}-${String(item.field ?? '')}`} className="flex items-start gap-3 rounded-2xl border border-amber-200/80 bg-white/85 px-4 py-3">
+              <div key={`${index}-${String(item.field ?? item.label ?? '')}`} className="flex items-start gap-3 rounded-2xl border border-amber-200/80 bg-white/85 px-4 py-3">
                 <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
                 <div>
                   <p className="text-sm font-medium text-slate-900">{String(item.label ?? item.field ?? '待补信息')}</p>
@@ -258,11 +263,8 @@ function renderFactSummaryCard(
   )
 }
 
-function renderCompensationCard(
-  event: SessionToolEvent,
-  onAction?: (action: string, payload: Record<string, unknown>) => void,
-) {
-  const payload = event.cardPayload ?? {}
+function renderCompensationCard(event: SessionToolEvent, onAction?: (action: string, payload: Record<string, unknown>) => void) {
+  const payload = asRecord(event.cardPayload)
   const calculations = asArray(payload.calculations)
   const totalAmount = typeof payload.total_amount === 'number' ? payload.total_amount : null
 
@@ -280,7 +282,7 @@ function renderCompensationCard(
         <div className="rounded-[24px] border border-rose-200/80 bg-[linear-gradient(135deg,rgba(255,241,242,0.95),rgba(255,255,255,0.98))] px-5 py-4 shadow-sm">
           <p className="text-xs font-medium tracking-[0.14em] text-rose-500 uppercase">赔偿测算</p>
           <p className="mt-2 text-2xl font-semibold text-slate-950">{formatCurrency(totalAmount)}</p>
-          <p className="mt-1 text-sm text-slate-600">以下分项用于解释总额组成，方便继续追问或生成文书。</p>
+          <p className="mt-1 text-sm text-slate-600">以下分项用于解释总额构成，便于继续追问或生成文书。</p>
         </div>
       ) : null}
 
@@ -295,7 +297,7 @@ function renderCompensationCard(
                     <p className="mt-1 text-xs leading-5 text-slate-500">{String(item.formula ?? '暂无公式说明')}</p>
                   </div>
                   <div className="rounded-full bg-rose-50 px-3 py-1 text-sm font-semibold text-rose-700">
-                    {String(item.amount ?? '--')}
+                    {typeof item.amount === 'number' ? formatCurrency(item.amount) : String(item.amount ?? '--')}
                   </div>
                 </div>
               </div>
@@ -307,23 +309,18 @@ function renderCompensationCard(
   )
 }
 
-function renderCaseSummaryCard(
-  event: SessionToolEvent,
-  onAction?: (action: string, payload: Record<string, unknown>) => void,
-) {
-  const payload = event.cardPayload ?? {}
-  const parties = isRecord(payload.parties) ? payload.parties : {}
-  const applicant = isRecord(parties.applicant) ? parties.applicant : {}
-  const respondent = isRecord(parties.respondent) ? parties.respondent : {}
-  const employment = isRecord(payload.employment) ? payload.employment : {}
-  const termination = isRecord(payload.termination) ? payload.termination : {}
-  const dispute = isRecord(payload.dispute) ? payload.dispute : {}
-  const claims = Array.isArray(dispute.claims)
-    ? dispute.claims.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-    : []
+function renderCaseSummaryCard(event: SessionToolEvent, onAction?: (action: string, payload: Record<string, unknown>) => void) {
+  const payload = asRecord(event.cardPayload)
+  const parties = asRecord(payload.parties)
+  const applicant = asRecord(parties.applicant)
+  const respondent = asRecord(parties.respondent)
+  const employment = asRecord(payload.employment)
+  const termination = asRecord(payload.termination)
+  const dispute = asRecord(payload.dispute)
+  const claims = asStringArray(dispute.claims)
   const compensationAmount = typeof dispute.compensation_amount === 'number' ? dispute.compensation_amount : null
   const summary = typeof dispute.summary === 'string' ? dispute.summary : ''
-  const region = typeof payload.region === 'string' ? payload.region : '待补充'
+  const region = typeof payload.region === 'string' && payload.region ? payload.region : '待补充'
   const generatedAt = typeof payload.generated_at === 'string' ? payload.generated_at : null
 
   return (
@@ -332,7 +329,7 @@ function renderCaseSummaryCard(
       summary={event.summary}
       accentClassName="text-emerald-600 border-emerald-200/80"
       chipClassName="border-emerald-200 bg-emerald-50 text-emerald-700"
-      icon={<FileSearch className="h-5 w-5" />}
+      icon={<ScrollText className="h-5 w-5" />}
       meta={compensationAmount !== null ? <Badge className="bg-emerald-100 text-emerald-700">争议金额 {formatCurrency(compensationAmount)}</Badge> : null}
       actions={renderActions(event.cardActions, payload, onAction, 'border-emerald-200 text-emerald-700 hover:bg-emerald-50')}
     >
@@ -346,25 +343,24 @@ function renderCaseSummaryCard(
         <div className="grid gap-2 md:grid-cols-2">
           <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm">
             <p className="text-xs font-medium text-slate-500">在职期间</p>
-            <div className="mt-1 text-sm leading-6 text-slate-800">{typeof employment.period === 'string' && employment.period ? employment.period : '待补充'}</div>
-            {Object.keys(employment).length > 0 && typeof employment !== 'string' && (
-              <div className="mt-1 text-xs text-slate-500">{Object.entries(employment).map(([k, v]) => (
-                <div key={k}><span className="font-semibold">{k}：</span>{String(v)}</div>
-              ))}</div>
-            )}
+            <div className="mt-1 text-sm leading-6 text-slate-800">{renderValue(employment.period)}</div>
           </div>
           <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm">
             <p className="text-xs font-medium text-slate-500">岗位</p>
-            <div className="mt-1 text-sm leading-6 text-slate-800">{typeof employment.position === 'string' && employment.position ? employment.position : '待补充'}</div>
+            <div className="mt-1 text-sm leading-6 text-slate-800">{renderValue(employment.position)}</div>
           </div>
-          {Object.keys(termination).length > 0 && (
-            <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm">
-              <p className="text-xs font-medium text-slate-500">解除/终止</p>
-              <div className="mt-1 text-sm leading-6 text-slate-800">{Object.entries(termination).map(([k, v]) => (
-                <div key={k}><span className="font-semibold">{k}：</span>{String(v)}</div>
-              ))}</div>
+          {Object.keys(employment).length > 0 ? (
+            <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm md:col-span-2">
+              <p className="text-xs font-medium text-slate-500">劳动关系详情</p>
+              <div className="mt-1 text-sm leading-6 text-slate-800">{renderValue(employment)}</div>
             </div>
-          )}
+          ) : null}
+          {Object.keys(termination).length > 0 ? (
+            <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm md:col-span-2">
+              <p className="text-xs font-medium text-slate-500">解除 / 终止</p>
+              <div className="mt-1 text-sm leading-6 text-slate-800">{renderValue(termination)}</div>
+            </div>
+          ) : null}
         </div>
       </SectionBlock>
 
@@ -386,20 +382,17 @@ function renderCaseSummaryCard(
         </SectionBlock>
       ) : null}
 
-      {generatedAt ? (
-        <p className="text-xs text-slate-500">生成时间：{generatedAt}</p>
-      ) : null}
+      {generatedAt ? <p className="text-xs text-slate-500">生成时间：{generatedAt}</p> : null}
     </ResultCardShell>
   )
 }
 
-function renderCard(
-  event: SessionToolEvent,
-  onAction?: (action: string, payload: Record<string, unknown>) => void,
-) {
+function renderCard(event: SessionToolEvent, onAction?: (action: string, payload: Record<string, unknown>) => void) {
   if (!event.cardType || !event.cardPayload) {
     return null
   }
+
+  const payload = asRecord(event.cardPayload)
 
   if (event.cardType === 'fact_summary') {
     return renderFactSummaryCard(event, onAction)
@@ -410,13 +403,7 @@ function renderCard(
   }
 
   if (event.cardType === 'lawyer_referral') {
-    return (
-      <LawyerReferralPanel
-        payload={event.cardPayload}
-        actions={event.cardActions || []}
-        onAction={onAction}
-      />
-    )
+    return <LawyerReferralPanel payload={payload} actions={event.cardActions || []} onAction={onAction} />
   }
 
   if (event.cardType === 'case_summary') {
@@ -425,37 +412,173 @@ function renderCard(
 
   return (
     <DocumentPreviewPanel
-      title={typeof event.cardPayload.document_type === 'string' ? event.cardPayload.document_type : event.cardTitle || '文书生成'}
-      payload={event.cardPayload}
+      title={typeof payload.document_type === 'string' ? payload.document_type : event.cardTitle || '文书生成'}
+      payload={payload}
       actions={event.cardActions || []}
       onAction={onAction}
     />
   )
 }
 
+function getCardEventKey(event: SessionToolEvent) {
+  return `${event.createdAt}-${event.toolName}-${event.cardType ?? 'unknown'}`
+}
+
+function getCardTabLabel(event: SessionToolEvent, index: number) {
+  if (event.cardTitle?.trim()) return event.cardTitle.trim()
+  if (event.cardType === 'fact_summary') return '要素摘要'
+  if (event.cardType === 'compensation') return '赔偿测算'
+  if (event.cardType === 'lawyer_referral') return '律师推荐'
+  if (event.cardType === 'case_summary') return '案情摘要'
+  return `结果卡 ${index + 1}`
+}
+
+function getCardTabTone(event: SessionToolEvent) {
+  if (event.cardType === 'fact_summary') {
+    return {
+      active: 'border-sky-300 bg-sky-50 text-sky-700 shadow-[0_10px_25px_rgba(14,165,233,0.14)]',
+      idle: 'border-slate-200/80 bg-white/92 text-slate-500 hover:border-sky-200 hover:bg-sky-50/70 hover:text-sky-700',
+      dot: 'bg-sky-500',
+      glow: 'from-sky-200/70 via-sky-100/40 to-transparent',
+      icon: <FileSearch className="h-3.5 w-3.5" />,
+    }
+  }
+
+  if (event.cardType === 'compensation') {
+    return {
+      active: 'border-rose-300 bg-rose-50 text-rose-700 shadow-[0_10px_25px_rgba(244,63,94,0.14)]',
+      idle: 'border-slate-200/80 bg-white/92 text-slate-500 hover:border-rose-200 hover:bg-rose-50/70 hover:text-rose-700',
+      dot: 'bg-rose-500',
+      glow: 'from-rose-200/70 via-rose-100/40 to-transparent',
+      icon: <BadgeDollarSign className="h-3.5 w-3.5" />,
+    }
+  }
+
+  if (event.cardType === 'lawyer_referral') {
+    return {
+      active: 'border-violet-300 bg-violet-50 text-violet-700 shadow-[0_10px_25px_rgba(139,92,246,0.14)]',
+      idle: 'border-slate-200/80 bg-white/92 text-slate-500 hover:border-violet-200 hover:bg-violet-50/70 hover:text-violet-700',
+      dot: 'bg-violet-500',
+      glow: 'from-violet-200/70 via-violet-100/40 to-transparent',
+      icon: <Users className="h-3.5 w-3.5" />,
+    }
+  }
+
+  if (event.cardType === 'case_summary') {
+    return {
+      active: 'border-emerald-300 bg-emerald-50 text-emerald-700 shadow-[0_10px_25px_rgba(16,185,129,0.14)]',
+      idle: 'border-slate-200/80 bg-white/92 text-slate-500 hover:border-emerald-200 hover:bg-emerald-50/70 hover:text-emerald-700',
+      dot: 'bg-emerald-500',
+      glow: 'from-emerald-200/70 via-emerald-100/40 to-transparent',
+      icon: <ScrollText className="h-3.5 w-3.5" />,
+    }
+  }
+
+  return {
+    active: 'border-amber-300 bg-amber-50 text-amber-700 shadow-[0_10px_25px_rgba(245,158,11,0.14)]',
+    idle: 'border-slate-200/80 bg-white/92 text-slate-500 hover:border-amber-200 hover:bg-amber-50/70 hover:text-amber-700',
+    dot: 'bg-amber-500',
+    glow: 'from-amber-200/70 via-amber-100/40 to-transparent',
+    icon: <ScrollText className="h-3.5 w-3.5" />,
+  }
+}
+
 export function ConsultationResultCards({ events, onAction }: ConsultationResultCardsProps) {
-  // 卡片自动消失逻辑：只展示最后一轮的卡片
-  const lastCardIndex = events.length > 0 ? events.length - 1 : -1
-  const completedCards = events.filter(
-    (event, idx) => event.status === 'completed' && event.cardType && event.cardPayload && idx === lastCardIndex,
+  const completedCards = useMemo(
+    () => events.filter((event) => event.status === 'completed' && event.cardType && event.cardPayload),
+    [events],
   )
+  const [activeCardKey, setActiveCardKey] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (completedCards.length === 0) {
+      setActiveCardKey(null)
+      return
+    }
+
+    setActiveCardKey(getCardEventKey(completedCards[completedCards.length - 1]!))
+  }, [completedCards])
 
   if (completedCards.length === 0) {
     return null
   }
 
+  const activeCard =
+    completedCards.find((event) => getCardEventKey(event) === activeCardKey) ??
+    completedCards[completedCards.length - 1]
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2 px-1 text-xs font-medium tracking-[0.14em] text-slate-500 uppercase">
-        <Sparkles className="h-3.5 w-3.5 text-blue-600" />
-        结构化结果卡片
-      </div>
-      <div className="grid gap-4">
-        {completedCards.map((event) => (
-          <div key={`${event.createdAt}-${event.toolName}-${event.cardType}`}>
-            {renderCard(event, onAction)}
+    <div className="space-y-4 px-2 sm:px-0">
+      <div className="relative">
+        <div className="relative flex items-center gap-2 px-1.5 text-[11px] font-medium tracking-[0.16em] text-slate-500 uppercase sm:px-1">
+          <Sparkles className="h-3.5 w-3.5 text-blue-600" />
+          结果卡片导航
+        </div>
+        <div className="relative mt-3 overflow-hidden rounded-full">
+          <div className="pointer-events-none absolute inset-y-0 left-0 z-20 w-8 bg-gradient-to-r from-white via-white/95 to-transparent sm:w-10" />
+          <div className="pointer-events-none absolute inset-y-0 right-0 z-20 w-8 bg-gradient-to-l from-white via-white/95 to-transparent sm:w-10" />
+          <div className="overflow-x-auto px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:px-4">
+            <div className="flex min-w-max items-center gap-2 py-1">
+              {completedCards.map((event, index) => {
+                const tone = getCardTabTone(event)
+                const cardKey = getCardEventKey(event)
+                const isActive = cardKey === getCardEventKey(activeCard)
+                const label = getCardTabLabel(event, index)
+
+                return (
+                  <button
+                    key={cardKey}
+                    type="button"
+                    className={cn(
+                      'group relative inline-flex shrink-0 items-center overflow-hidden border text-sm font-medium transition-[width,padding,background-color,border-color,color,box-shadow,transform] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 active:scale-[0.98]',
+                      isActive
+                        ? cn('h-10 w-[clamp(8rem,40vw,14rem)] justify-start gap-2 rounded-full px-3.5 py-2 sm:h-11 sm:px-4 sm:py-2.5', tone.active)
+                        : cn('h-9 w-9 justify-center rounded-full p-0 sm:h-10 sm:w-10', tone.idle),
+                    )}
+                    onClick={() => setActiveCardKey(cardKey)}
+                    aria-label={label}
+                    title={label}
+                  >
+                    <span
+                      className={cn(
+                        'relative z-10 flex items-center justify-center rounded-full border border-current/10 bg-white/85 transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]',
+                        isActive ? 'h-6 w-6 shrink-0 scale-100' : 'h-6 w-6 scale-90',
+                      )}
+                    >
+                      {tone.icon}
+                    </span>
+                    {isActive ? (
+                      <>
+                        <span
+                          className={cn(
+                            'relative z-10 h-2 w-2 shrink-0 rounded-full transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]',
+                            tone.dot,
+                            'scale-110 animate-in fade-in-0 zoom-in-75',
+                          )}
+                        />
+                        <span className="relative z-10 min-w-0 truncate whitespace-nowrap animate-in fade-in-0 slide-in-from-left-2 duration-300">
+                          {label}
+                        </span>
+                      </>
+                    ) : null}
+                    <span
+                      className={cn(
+                        'pointer-events-none absolute inset-0 rounded-full bg-gradient-to-r opacity-0 blur-xl transition-opacity duration-300',
+                        tone.glow,
+                        isActive ? 'opacity-100' : 'group-hover:opacity-70',
+                      )}
+                    />
+                  </button>
+                )
+              })}
+            </div>
           </div>
-        ))}
+        </div>
+      </div>
+
+      <div key={getCardEventKey(activeCard)} className="animate-in fade-in-0 slide-in-from-bottom-3 px-1.5 duration-300 sm:px-0">
+        {renderCard(activeCard, onAction)}
       </div>
     </div>
   )
