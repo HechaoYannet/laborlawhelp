@@ -52,11 +52,27 @@ export interface MiddlewareChatHandlers {
 
 const DEFAULT_API_BASE_URL = '/api/v1'
 
+function isLoopbackUrl(value: string) {
+  try {
+    const url = new URL(value)
+    return url.hostname === '127.0.0.1' || url.hostname === 'localhost'
+  } catch {
+    return false
+  }
+}
+
+function isLoopbackHostname(hostname: string) {
+  return hostname === '127.0.0.1' || hostname === 'localhost'
+}
+
 function getApiBaseUrl() {
   const fromEnv =
     process.env.NEXT_PUBLIC_MIDDLEND_BASE_URL ||
     process.env.NEXT_PUBLIC_MIDDLEWARE_API_BASE_URL
   if (!fromEnv) return DEFAULT_API_BASE_URL
+  if (typeof window !== 'undefined' && isLoopbackUrl(fromEnv) && !isLoopbackHostname(window.location.hostname)) {
+    return DEFAULT_API_BASE_URL
+  }
   return fromEnv.replace(/\/$/, '')
 }
 

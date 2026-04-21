@@ -6,13 +6,96 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { SessionToolEvent } from '@/hooks/use-case-store'
 import { cn } from '@/lib/utils'
-import { BadgeDollarSign, CircleAlert, FileSearch, ScrollText, Sparkles, Users } from 'lucide-react'
+import {
+  BadgeDollarSign,
+  CircleAlert,
+  FileSearch,
+  ScrollText,
+  Sparkles,
+  Users,
+} from 'lucide-react'
 import { DocumentPreviewPanel } from './document-preview-panel'
 import { LawyerReferralPanel } from './lawyer-referral-panel'
 
 interface ConsultationResultCardsProps {
   events: SessionToolEvent[]
   onAction?: (action: string, payload: Record<string, unknown>) => void
+}
+
+const FIELD_LABELS: Record<string, string> = {
+  action: '建议动作',
+  action_hint: '处理建议',
+  amount: '金额',
+  applicant: '申请人',
+  checklist: '下一步行动',
+  claims: '当前诉求',
+  company: '公司',
+  compensation: '赔偿测算',
+  compensation_amount: '争议金额',
+  complex: '复杂程度',
+  complexity: '复杂程度',
+  content: '内容',
+  dispute: '争议信息',
+  dispute_types: '争议类型',
+  document_type: '文书类型',
+  employment: '劳动关系',
+  end_date: '结束时间',
+  evidence: '证据',
+  extracted_facts: '已提取信息',
+  field: '字段',
+  formula: '计算公式',
+  generated_at: '生成时间',
+  info_completeness: '信息完整度',
+  item: '项目',
+  label: '标签',
+  missing_evidence: '待补证据',
+  missing_info: '待补信息',
+  monthly_salary: '月工资',
+  name: '名称',
+  notice_date: '通知日期',
+  period: '在职期间',
+  position: '岗位',
+  reason: '原因',
+  recommended_lawyers: '推荐律师',
+  region: '地区',
+  respondent: '被申请人',
+  risk_tags: '风险标签',
+  salary: '工资',
+  standard_evidence: '标准证据',
+  start_date: '开始时间',
+  summary: '摘要',
+  termination: '解除 / 终止',
+  total_amount: '总金额',
+  urgency: '紧急程度',
+  way: '方式',
+}
+
+const VALUE_LABELS: Record<string, string> = {
+  oral_notice: '口头辞退',
+  written_notice: '书面通知辞退',
+  no_notice: '未提前通知',
+  forced_resign: '被迫离职',
+  negotiated: '协商解除',
+  not_suitable: '不胜任工作',
+  performance: '绩效不达标',
+  organizational: '组织调整',
+  business_loss: '经营困难',
+  violation: '违纪违规',
+  unknown: '待补充',
+  simple: '低复杂度',
+  moderate: '中复杂度',
+  complex: '高复杂度',
+  low: '低',
+  medium: '中',
+  high: '高',
+  fact_summary: '要素摘要',
+  compensation: '赔偿测算',
+  lawyer_referral: '律师推荐',
+  case_summary: '案情摘要',
+  arbitration_application: '仲裁申请书',
+  complaint_letter: '投诉信',
+  evidence_checklist: '证据清单',
+  legal_opinion: '法律意见',
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -24,11 +107,57 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function asArray(value: unknown): Array<Record<string, unknown>> {
-  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => isRecord(item)) : []
+  return Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> => isRecord(item))
+    : []
 }
 
 function asStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : []
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : []
+}
+
+function looksLikeJsonString(value: string) {
+  const trimmed = value.trim()
+  return (
+    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+    (trimmed.startsWith('[') && trimmed.endsWith(']'))
+  )
+}
+
+function tryParseStructuredString(value: string): unknown {
+  if (!looksLikeJsonString(value)) {
+    return value
+  }
+
+  try {
+    return JSON.parse(value) as unknown
+  } catch {
+    return value
+  }
+}
+
+function formatFieldLabel(key: string) {
+  if (FIELD_LABELS[key]) {
+    return FIELD_LABELS[key]
+  }
+
+  const normalized = key
+    .replace(/_/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .trim()
+
+  if (!normalized) {
+    return key
+  }
+
+  return normalized.replace(/\b\w/g, (char) => char.toUpperCase())
+}
+
+function formatValueLabel(value: string) {
+  const trimmed = value.trim()
+  return VALUE_LABELS[trimmed] ?? trimmed
 }
 
 function formatCurrency(value: number | null) {
@@ -39,17 +168,29 @@ function formatPercent(value: number | null) {
   return value === null ? '--' : `${Math.round(value * 100)}%`
 }
 
-function renderValue(value: unknown): ReactNode {
+function renderValue(value: unknown, parentKey?: string): ReactNode {
   if (value === null || value === undefined || value === '') {
     return '--'
   }
 
-  if (typeof value === 'number' || typeof value === 'boolean') {
+  if (typeof value === 'string') {
+    const parsed = tryParseStructuredString(value)
+    if (parsed !== value) {
+      return renderValue(parsed, parentKey)
+    }
+
+    return <span className="whitespace-pre-wrap break-words">{formatValueLabel(value)}</span>
+  }
+
+  if (typeof value === 'number') {
+    if (/(amount|salary|wage|compensation|price|fee)$/i.test(parentKey ?? '')) {
+      return formatCurrency(value)
+    }
     return String(value)
   }
 
-  if (typeof value === 'string') {
-    return value
+  if (typeof value === 'boolean') {
+    return value ? '是' : '否'
   }
 
   if (Array.isArray(value)) {
@@ -57,11 +198,29 @@ function renderValue(value: unknown): ReactNode {
       return '--'
     }
 
+    if (value.every((item) => typeof item === 'string')) {
+      return (
+        <div className="flex flex-wrap gap-2">
+          {value.map((item, index) => (
+            <span
+              key={`${String(item)}-${index}`}
+              className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-700"
+            >
+              {formatValueLabel(String(item))}
+            </span>
+          ))}
+        </div>
+      )
+    }
+
     return (
       <div className="space-y-1.5">
         {value.map((item, index) => (
-          <div key={index} className="rounded-xl border border-slate-200/70 bg-slate-50/80 px-3 py-2">
-            {renderValue(item)}
+          <div
+            key={index}
+            className="rounded-xl border border-slate-200/70 bg-slate-50/80 px-3 py-2"
+          >
+            {renderValue(item, parentKey)}
           </div>
         ))}
       </div>
@@ -72,9 +231,12 @@ function renderValue(value: unknown): ReactNode {
     return (
       <div className="space-y-1.5">
         {Object.entries(value).map(([key, entry]) => (
-          <div key={key} className="rounded-xl border border-slate-200/70 bg-slate-50/80 px-3 py-2">
-            <div className="text-xs font-medium text-slate-500">{key}</div>
-            <div className="mt-1 text-sm leading-6 text-slate-700">{renderValue(entry)}</div>
+          <div
+            key={key}
+            className="rounded-xl border border-slate-200/70 bg-slate-50/80 px-3 py-2"
+          >
+            <div className="text-xs font-medium text-slate-500">{formatFieldLabel(key)}</div>
+            <div className="mt-1 text-sm leading-6 text-slate-700">{renderValue(entry, key)}</div>
           </div>
         ))}
       </div>
@@ -82,6 +244,14 @@ function renderValue(value: unknown): ReactNode {
   }
 
   return String(value)
+}
+
+function formatDocumentTitle(value: unknown) {
+  if (typeof value !== 'string' || !value.trim()) {
+    return null
+  }
+
+  return VALUE_LABELS[value.trim()] ?? value.trim()
 }
 
 function ResultCardShell({
@@ -112,20 +282,31 @@ function ResultCardShell({
     >
       <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-current/90 via-current/55 to-transparent opacity-85" />
 
-      <CardHeader className="gap-4 px-5 pt-5 pb-4 md:px-6">
+      <CardHeader className="gap-4 px-5 pb-4 pt-5 md:px-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-3">
-            <div className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white shadow-sm', chipClassName)}>
+            <div
+              className={cn(
+                'flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white shadow-sm',
+                chipClassName,
+              )}
+            >
               {icon}
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge className={cn('rounded-full border px-2.5 py-1 text-[11px] font-semibold', chipClassName)} variant="outline">
+                <Badge
+                  className={cn(
+                    'rounded-full border px-2.5 py-1 text-[11px] font-semibold',
+                    chipClassName,
+                  )}
+                  variant="outline"
+                >
                   结构化结果
                 </Badge>
                 {meta}
               </div>
-              <CardTitle className="mt-2 text-base leading-6 font-semibold text-slate-950 md:text-lg">
+              <CardTitle className="mt-2 text-base font-semibold leading-6 text-slate-950 md:text-lg">
                 {title}
               </CardTitle>
             </div>
@@ -152,10 +333,23 @@ function ResultCardShell({
   )
 }
 
-function MetricTile({ label, value, toneClassName }: { label: string; value: ReactNode; toneClassName?: string }) {
+function MetricTile({
+  label,
+  value,
+  toneClassName,
+}: {
+  label: string
+  value: ReactNode
+  toneClassName?: string
+}) {
   return (
-    <div className={cn('rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm', toneClassName)}>
-      <p className="text-[11px] font-medium tracking-[0.12em] text-slate-500 uppercase">{label}</p>
+    <div
+      className={cn(
+        'rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm',
+        toneClassName,
+      )}
+    >
+      <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">{label}</p>
       <div className="mt-1 text-sm font-semibold text-slate-900 md:text-base">{value}</div>
     </div>
   )
@@ -194,7 +388,10 @@ function renderActions(
       type="button"
       size="sm"
       variant="outline"
-      className={cn('h-9 rounded-full border bg-white px-4 text-sm text-slate-700 shadow-sm hover:bg-slate-50', accentClassName)}
+      className={cn(
+        'h-9 rounded-full border bg-white px-4 text-sm text-slate-700 shadow-sm hover:bg-slate-50',
+        accentClassName,
+      )}
       onClick={() => onAction?.(action.action, payload)}
     >
       {action.label}
@@ -202,7 +399,10 @@ function renderActions(
   ))
 }
 
-function renderFactSummaryCard(event: SessionToolEvent, onAction?: (action: string, payload: Record<string, unknown>) => void) {
+function renderFactSummaryCard(
+  event: SessionToolEvent,
+  onAction?: (action: string, payload: Record<string, unknown>) => void,
+) {
   const payload = asRecord(event.cardPayload)
   const extractedFacts = asRecord(payload.extracted_facts)
   const disputeTypes = asStringArray(payload.dispute_types)
@@ -214,18 +414,31 @@ function renderFactSummaryCard(event: SessionToolEvent, onAction?: (action: stri
     <ResultCardShell
       title={event.cardTitle || '要素提取与案情摘要'}
       summary={event.summary}
-      accentClassName="text-sky-600 border-sky-200/80"
+      accentClassName="border-sky-200/80 text-sky-600"
       chipClassName="border-sky-200 bg-sky-50 text-sky-700"
       icon={<FileSearch className="h-5 w-5" />}
-      meta={completeness !== null ? <Badge className="bg-sky-100 text-sky-700">完整度 {formatPercent(completeness)}</Badge> : null}
-      actions={renderActions(event.cardActions, payload, onAction, 'border-sky-200 text-sky-700 hover:bg-sky-50')}
+      meta={
+        completeness !== null ? (
+          <Badge className="bg-sky-100 text-sky-700">完整度 {formatPercent(completeness)}</Badge>
+        ) : null
+      }
+      actions={renderActions(
+        event.cardActions,
+        payload,
+        onAction,
+        'border-sky-200 text-sky-700 hover:bg-sky-50',
+      )}
     >
       <div className="grid gap-3 md:grid-cols-2">
-        <MetricTile label="争议类型" value={disputeTypes.length > 0 ? disputeTypes.join(' / ') : '待补充'} />
+        <MetricTile label="争议类型" value={disputeTypes.length > 0 ? disputeTypes.map(formatValueLabel).join(' / ') : '待补充'} />
         <MetricTile
           label="待补字段"
           value={missing.length > 0 ? `${missing.length} 项` : '较完整'}
-          toneClassName={missing.length > 0 ? 'border-amber-200/80 bg-amber-50/90' : 'border-emerald-200/80 bg-emerald-50/90'}
+          toneClassName={
+            missing.length > 0
+              ? 'border-amber-200/80 bg-amber-50/90'
+              : 'border-emerald-200/80 bg-emerald-50/90'
+          }
         />
       </div>
 
@@ -234,8 +447,8 @@ function renderFactSummaryCard(event: SessionToolEvent, onAction?: (action: stri
           <div className="grid gap-2 md:grid-cols-2">
             {factEntries.map(([key, value]) => (
               <div key={key} className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm">
-                <p className="text-xs font-medium text-slate-500">{key}</p>
-                <div className="mt-1 text-sm leading-6 text-slate-800">{renderValue(value)}</div>
+                <p className="text-xs font-medium text-slate-500">{formatFieldLabel(key)}</p>
+                <div className="mt-1 text-sm leading-6 text-slate-800">{renderValue(value, key)}</div>
               </div>
             ))}
           </div>
@@ -246,12 +459,17 @@ function renderFactSummaryCard(event: SessionToolEvent, onAction?: (action: stri
         <SectionBlock title="建议优先补充" toneClassName="border-amber-200/80 bg-amber-50/70">
           <div className="grid gap-2">
             {missing.map((item, index) => (
-              <div key={`${index}-${String(item.field ?? item.label ?? '')}`} className="flex items-start gap-3 rounded-2xl border border-amber-200/80 bg-white/85 px-4 py-3">
+              <div
+                key={`${index}-${String(item.field ?? item.label ?? '')}`}
+                className="flex items-start gap-3 rounded-2xl border border-amber-200/80 bg-white/85 px-4 py-3"
+              >
                 <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
                 <div>
-                  <p className="text-sm font-medium text-slate-900">{String(item.label ?? item.field ?? '待补信息')}</p>
+                  <p className="text-sm font-medium text-slate-900">
+                    {String(item.label ?? formatFieldLabel(String(item.field ?? '待补信息')))}
+                  </p>
                   {typeof item.reason === 'string' && item.reason ? (
-                    <p className="mt-1 text-xs leading-5 text-slate-600">{item.reason}</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-600">{formatValueLabel(item.reason)}</p>
                   ) : null}
                 </div>
               </div>
@@ -263,7 +481,10 @@ function renderFactSummaryCard(event: SessionToolEvent, onAction?: (action: stri
   )
 }
 
-function renderCompensationCard(event: SessionToolEvent, onAction?: (action: string, payload: Record<string, unknown>) => void) {
+function renderCompensationCard(
+  event: SessionToolEvent,
+  onAction?: (action: string, payload: Record<string, unknown>) => void,
+) {
   const payload = asRecord(event.cardPayload)
   const calculations = asArray(payload.calculations)
   const totalAmount = typeof payload.total_amount === 'number' ? payload.total_amount : null
@@ -272,15 +493,24 @@ function renderCompensationCard(event: SessionToolEvent, onAction?: (action: str
     <ResultCardShell
       title={event.cardTitle || '赔偿项目测算'}
       summary={event.summary}
-      accentClassName="text-rose-600 border-rose-200/80"
+      accentClassName="border-rose-200/80 text-rose-600"
       chipClassName="border-rose-200 bg-rose-50 text-rose-700"
       icon={<BadgeDollarSign className="h-5 w-5" />}
-      meta={totalAmount !== null ? <Badge className="bg-rose-100 text-rose-700">预计总额 {formatCurrency(totalAmount)}</Badge> : null}
-      actions={renderActions(event.cardActions, payload, onAction, 'border-rose-200 text-rose-700 hover:bg-rose-50')}
+      meta={
+        totalAmount !== null ? (
+          <Badge className="bg-rose-100 text-rose-700">预计总额 {formatCurrency(totalAmount)}</Badge>
+        ) : null
+      }
+      actions={renderActions(
+        event.cardActions,
+        payload,
+        onAction,
+        'border-rose-200 text-rose-700 hover:bg-rose-50',
+      )}
     >
       {totalAmount !== null ? (
         <div className="rounded-[24px] border border-rose-200/80 bg-[linear-gradient(135deg,rgba(255,241,242,0.95),rgba(255,255,255,0.98))] px-5 py-4 shadow-sm">
-          <p className="text-xs font-medium tracking-[0.14em] text-rose-500 uppercase">赔偿测算</p>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-rose-500">赔偿测算</p>
           <p className="mt-2 text-2xl font-semibold text-slate-950">{formatCurrency(totalAmount)}</p>
           <p className="mt-1 text-sm text-slate-600">以下分项用于解释总额构成，便于继续追问或生成文书。</p>
         </div>
@@ -290,14 +520,23 @@ function renderCompensationCard(event: SessionToolEvent, onAction?: (action: str
         <SectionBlock title="分项明细">
           <div className="grid gap-3">
             {calculations.map((item, index) => (
-              <div key={`${index}-${String(item.item ?? '')}`} className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 shadow-sm">
+              <div
+                key={`${index}-${String(item.item ?? '')}`}
+                className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 shadow-sm"
+              >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-slate-900">{String(item.item ?? '计算项')}</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-500">{String(item.formula ?? '暂无公式说明')}</p>
+                    <p className="text-sm font-semibold text-slate-900">
+                      {String(item.item ?? '计算项')}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      {String(item.formula ?? '暂无公式说明')}
+                    </p>
                   </div>
                   <div className="rounded-full bg-rose-50 px-3 py-1 text-sm font-semibold text-rose-700">
-                    {typeof item.amount === 'number' ? formatCurrency(item.amount) : String(item.amount ?? '--')}
+                    {typeof item.amount === 'number'
+                      ? formatCurrency(item.amount)
+                      : formatValueLabel(String(item.amount ?? '--'))}
                   </div>
                 </div>
               </div>
@@ -309,7 +548,10 @@ function renderCompensationCard(event: SessionToolEvent, onAction?: (action: str
   )
 }
 
-function renderCaseSummaryCard(event: SessionToolEvent, onAction?: (action: string, payload: Record<string, unknown>) => void) {
+function renderCaseSummaryCard(
+  event: SessionToolEvent,
+  onAction?: (action: string, payload: Record<string, unknown>) => void,
+) {
   const payload = asRecord(event.cardPayload)
   const parties = asRecord(payload.parties)
   const applicant = asRecord(parties.applicant)
@@ -318,7 +560,8 @@ function renderCaseSummaryCard(event: SessionToolEvent, onAction?: (action: stri
   const termination = asRecord(payload.termination)
   const dispute = asRecord(payload.dispute)
   const claims = asStringArray(dispute.claims)
-  const compensationAmount = typeof dispute.compensation_amount === 'number' ? dispute.compensation_amount : null
+  const compensationAmount =
+    typeof dispute.compensation_amount === 'number' ? dispute.compensation_amount : null
   const summary = typeof dispute.summary === 'string' ? dispute.summary : ''
   const region = typeof payload.region === 'string' && payload.region ? payload.region : '待补充'
   const generatedAt = typeof payload.generated_at === 'string' ? payload.generated_at : null
@@ -327,11 +570,22 @@ function renderCaseSummaryCard(event: SessionToolEvent, onAction?: (action: stri
     <ResultCardShell
       title={event.cardTitle || '案情摘要卡片'}
       summary={event.summary}
-      accentClassName="text-emerald-600 border-emerald-200/80"
+      accentClassName="border-emerald-200/80 text-emerald-600"
       chipClassName="border-emerald-200 bg-emerald-50 text-emerald-700"
       icon={<ScrollText className="h-5 w-5" />}
-      meta={compensationAmount !== null ? <Badge className="bg-emerald-100 text-emerald-700">争议金额 {formatCurrency(compensationAmount)}</Badge> : null}
-      actions={renderActions(event.cardActions, payload, onAction, 'border-emerald-200 text-emerald-700 hover:bg-emerald-50')}
+      meta={
+        compensationAmount !== null ? (
+          <Badge className="bg-emerald-100 text-emerald-700">
+            争议金额 {formatCurrency(compensationAmount)}
+          </Badge>
+        ) : null
+      }
+      actions={renderActions(
+        event.cardActions,
+        payload,
+        onAction,
+        'border-emerald-200 text-emerald-700 hover:bg-emerald-50',
+      )}
     >
       <div className="grid gap-3 md:grid-cols-3">
         <MetricTile label="申请人" value={typeof applicant.name === 'string' && applicant.name ? applicant.name : '待补充'} />
@@ -343,22 +597,22 @@ function renderCaseSummaryCard(event: SessionToolEvent, onAction?: (action: stri
         <div className="grid gap-2 md:grid-cols-2">
           <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm">
             <p className="text-xs font-medium text-slate-500">在职期间</p>
-            <div className="mt-1 text-sm leading-6 text-slate-800">{renderValue(employment.period)}</div>
+            <div className="mt-1 text-sm leading-6 text-slate-800">{renderValue(employment.period, 'period')}</div>
           </div>
           <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm">
             <p className="text-xs font-medium text-slate-500">岗位</p>
-            <div className="mt-1 text-sm leading-6 text-slate-800">{renderValue(employment.position)}</div>
+            <div className="mt-1 text-sm leading-6 text-slate-800">{renderValue(employment.position, 'position')}</div>
           </div>
           {Object.keys(employment).length > 0 ? (
             <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm md:col-span-2">
               <p className="text-xs font-medium text-slate-500">劳动关系详情</p>
-              <div className="mt-1 text-sm leading-6 text-slate-800">{renderValue(employment)}</div>
+              <div className="mt-1 text-sm leading-6 text-slate-800">{renderValue(employment, 'employment')}</div>
             </div>
           ) : null}
           {Object.keys(termination).length > 0 ? (
             <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm md:col-span-2">
               <p className="text-xs font-medium text-slate-500">解除 / 终止</p>
-              <div className="mt-1 text-sm leading-6 text-slate-800">{renderValue(termination)}</div>
+              <div className="mt-1 text-sm leading-6 text-slate-800">{renderValue(termination, 'termination')}</div>
             </div>
           ) : null}
         </div>
@@ -374,8 +628,11 @@ function renderCaseSummaryCard(event: SessionToolEvent, onAction?: (action: stri
         <SectionBlock title="当前诉求">
           <div className="grid gap-2">
             {claims.map((claim) => (
-              <div key={claim} className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 text-sm leading-6 text-slate-700 shadow-sm">
-                {claim}
+              <div
+                key={claim}
+                className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 text-sm leading-6 text-slate-700 shadow-sm"
+              >
+                {formatValueLabel(claim)}
               </div>
             ))}
           </div>
@@ -387,7 +644,10 @@ function renderCaseSummaryCard(event: SessionToolEvent, onAction?: (action: stri
   )
 }
 
-function renderCard(event: SessionToolEvent, onAction?: (action: string, payload: Record<string, unknown>) => void) {
+function renderCard(
+  event: SessionToolEvent,
+  onAction?: (action: string, payload: Record<string, unknown>) => void,
+) {
   if (!event.cardType || !event.cardPayload) {
     return null
   }
@@ -403,7 +663,13 @@ function renderCard(event: SessionToolEvent, onAction?: (action: string, payload
   }
 
   if (event.cardType === 'lawyer_referral') {
-    return <LawyerReferralPanel payload={payload} actions={event.cardActions || []} onAction={onAction} />
+    return (
+      <LawyerReferralPanel
+        payload={payload}
+        actions={event.cardActions || []}
+        onAction={onAction}
+      />
+    )
   }
 
   if (event.cardType === 'case_summary') {
@@ -412,7 +678,7 @@ function renderCard(event: SessionToolEvent, onAction?: (action: string, payload
 
   return (
     <DocumentPreviewPanel
-      title={typeof payload.document_type === 'string' ? payload.document_type : event.cardTitle || '文书生成'}
+      title={formatDocumentTitle(payload.document_type) || event.cardTitle || '文书生成'}
       payload={payload}
       actions={event.cardActions || []}
       onAction={onAction}
@@ -485,7 +751,10 @@ function getCardTabTone(event: SessionToolEvent) {
 
 export function ConsultationResultCards({ events, onAction }: ConsultationResultCardsProps) {
   const completedCards = useMemo(
-    () => events.filter((event) => event.status === 'completed' && event.cardType && event.cardPayload),
+    () =>
+      events.filter(
+        (event) => event.status === 'completed' && event.cardType && event.cardPayload,
+      ),
     [events],
   )
   const [activeCardKey, setActiveCardKey] = useState<string | null>(null)
@@ -510,7 +779,7 @@ export function ConsultationResultCards({ events, onAction }: ConsultationResult
   return (
     <div className="space-y-4 px-2 sm:px-0">
       <div className="relative">
-        <div className="relative flex items-center gap-2 px-1.5 text-[11px] font-medium tracking-[0.16em] text-slate-500 uppercase sm:px-1">
+        <div className="relative flex items-center gap-2 px-1.5 text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500 sm:px-1">
           <Sparkles className="h-3.5 w-3.5 text-blue-600" />
           结果卡片导航
         </div>
@@ -533,10 +802,14 @@ export function ConsultationResultCards({ events, onAction }: ConsultationResult
                       'group relative inline-flex shrink-0 items-center overflow-hidden border text-sm font-medium transition-[width,padding,background-color,border-color,color,box-shadow,transform] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 active:scale-[0.98]',
                       isActive
-                        ? cn('h-10 w-[clamp(8rem,40vw,14rem)] justify-start gap-2 rounded-full px-3.5 py-2 sm:h-11 sm:px-4 sm:py-2.5', tone.active)
+                        ? cn(
+                            'h-10 w-[clamp(8rem,40vw,14rem)] justify-start gap-2 rounded-full px-3.5 py-2 sm:h-11 sm:px-4 sm:py-2.5',
+                            tone.active,
+                          )
                         : cn('h-9 w-9 justify-center rounded-full p-0 sm:h-10 sm:w-10', tone.idle),
                     )}
                     onClick={() => setActiveCardKey(cardKey)}
+                    aria-pressed={isActive}
                     aria-label={label}
                     title={label}
                   >
@@ -557,7 +830,7 @@ export function ConsultationResultCards({ events, onAction }: ConsultationResult
                             'scale-110 animate-in fade-in-0 zoom-in-75',
                           )}
                         />
-                        <span className="relative z-10 min-w-0 truncate whitespace-nowrap animate-in fade-in-0 slide-in-from-left-2 duration-300">
+                        <span className="relative z-10 min-w-0 truncate whitespace-nowrap animate-in slide-in-from-left-2 fade-in-0 duration-300">
                           {label}
                         </span>
                       </>
@@ -577,7 +850,10 @@ export function ConsultationResultCards({ events, onAction }: ConsultationResult
         </div>
       </div>
 
-      <div key={getCardEventKey(activeCard)} className="animate-in fade-in-0 slide-in-from-bottom-3 px-1.5 duration-300 sm:px-0">
+      <div
+        key={getCardEventKey(activeCard)}
+        className="animate-in slide-in-from-bottom-3 fade-in-0 px-1.5 duration-300 sm:px-0"
+      >
         {renderCard(activeCard, onAction)}
       </div>
     </div>
