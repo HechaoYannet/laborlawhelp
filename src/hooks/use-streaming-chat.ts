@@ -40,6 +40,7 @@ export function useStreamingChat({
   addMessage,
   isThinking,
   setIsThinking,
+  setInputValue,
   setDisplayText,
   scrollContainerRef,
   streamingBubbleRef,
@@ -67,6 +68,7 @@ export function useStreamingChat({
   addMessage: (message: Omit<DialogueMessage, 'id' | 'timestamp'>) => void
   isThinking: boolean
   setIsThinking: (value: boolean | ((prev: boolean) => boolean)) => void
+  setInputValue: (value: string | ((prev: string) => string)) => void
   setDisplayText: (value: string | ((prev: string) => string)) => void
   scrollContainerRef: React.RefObject<HTMLDivElement | null>
   streamingBubbleRef: React.RefObject<HTMLDivElement | null>
@@ -85,6 +87,7 @@ export function useStreamingChat({
   persistMiddlewareSession: (payload: Record<string, unknown>) => void
 }) {
   const streamedResponseRef = useRef('')
+  const turnIdRef = useRef(0)
 
   // 会话持久化
   useEffect(() => {
@@ -263,6 +266,7 @@ export function useStreamingChat({
                   summary: '工具调用中',
                   references: [],
                   traceId,
+                  turnId: turnIdRef.current,
                   createdAt: nextToolEventCreatedAt(),
                 },
               ],
@@ -317,6 +321,7 @@ export function useStreamingChat({
                   cardPayload,
                   cardActions,
                   traceId,
+                  turnId: turnIdRef.current,
                   createdAt: nextToolEventCreatedAt(),
                 })
               }
@@ -397,7 +402,7 @@ export function useStreamingChat({
           finalSummary ||
           '抱歉，本次未生成有效回复，请重试。',
       )
-      addMessage({ role: 'assistant', content: finalText })
+      addMessage({ role: 'assistant', content: finalText, turnId: turnIdRef.current })
       setDisplayText('')
       setIsThinking(false)
       setSessionContext({
@@ -431,7 +436,11 @@ export function useStreamingChat({
       const content = (rawContent ?? inputValue).trim()
       if (!content || isThinking) return
 
-      addMessage({ role: 'user', content })
+      setInputValue('')
+      const turnId = sessionContext.currentTurnId + 1
+      turnIdRef.current = turnId
+      setSessionContext({ currentTurnId: turnId })
+      addMessage({ role: 'user', content, turnId })
       if (desktopInputRef.current) {
         desktopInputRef.current.value = ''
         desktopInputRef.current.style.height = 'auto'
@@ -477,6 +486,7 @@ export function useStreamingChat({
       inputValue,
       isThinking,
       addMessage,
+      setInputValue,
       desktopInputRef,
       mobileInputRef,
       resizeAllTextareas,

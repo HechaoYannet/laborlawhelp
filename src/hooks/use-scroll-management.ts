@@ -157,15 +157,12 @@ export function useScrollManagement({
       }
 
       if (isThinking && streamingBubbleRef.current && !isUserHoldActive) {
-        const { bubbleBottomVisible, bubbleBottomInObservationBand } = getStreamingBubbleMetrics(
+        const { bubbleBottomVisible } = getStreamingBubbleMetrics(
           container,
           streamingBubbleRef.current,
         )
 
-        if (!nearBottom && bubbleBottomInObservationBand) {
-          followModeRef.current = 'streaming'
-          shouldFollowStreamingBubbleRef.current = true
-        } else if (!nearBottom && !bubbleBottomVisible && followModeRef.current !== 'bottom') {
+        if (!nearBottom && !bubbleBottomVisible && followModeRef.current !== 'bottom') {
           followModeRef.current = 'none'
           shouldFollowStreamingBubbleRef.current = false
         }
@@ -234,27 +231,16 @@ export function useScrollManagement({
       return
     }
 
-    if (Date.now() < userScrollHoldUntilRef.current) {
-      return
-    }
-
-    const { bubbleBottomInObservationBand } = getStreamingBubbleMetrics(container, bubble)
-    if (bubbleBottomInObservationBand) {
-      followModeRef.current = 'streaming'
-      shouldFollowStreamingBubbleRef.current = true
-      followStreamingBubble('smooth')
-    }
+    // 用户明确离开底部后不再抢回控制权
   }, [
     displayText,
     followStreamingBubble,
-    getStreamingBubbleMetrics,
     isThinking,
     scrollContainerRef,
     streamingBubbleRef,
     followModeRef,
     shouldFollowStreamingBubbleRef,
     isNearBottomRef,
-    userScrollHoldUntilRef,
   ])
 
   // 流式气泡 DOM 尺寸变化时即时跟随（绕过 React 批次延迟）

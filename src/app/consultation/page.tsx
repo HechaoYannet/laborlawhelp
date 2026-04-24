@@ -37,6 +37,7 @@ import {
   splitStableMarkdown,
   getMarkdownClassName,
 } from '@/lib/consultation-utils'
+import { saveSessionRecord, getSessionList, formatSessionTime, type SessionRecord } from '@/lib/session-manager'
 import { useDeviceDetect } from '@/hooks/use-device-detect'
 import { useComposer } from '@/hooks/use-composer'
 import { useScrollManagement, type FollowMode } from '@/hooks/use-scroll-management'
@@ -54,6 +55,8 @@ export default function LaborRightsConsultation() {
   const [displayText, setDisplayText] = useState('')
   const [summaryCopied, setSummaryCopied] = useState(false)
   const [packageCopied, setPackageCopied] = useState(false)
+  const [sessionList, setSessionList] = useState<SessionRecord[]>([])
+  const [sessionListOpen, setSessionListOpen] = useState(false)
 
   const {
     messages,
@@ -100,6 +103,129 @@ export default function LaborRightsConsultation() {
   const clearPersistedMiddlewareSession = useCallback(() => {
     if (typeof window === 'undefined') return
     window.localStorage.removeItem(CONSULTATION_SESSION_STORAGE_KEY)
+  }, [])
+
+  // 会话管理
+  const saveCurrentSession = useCallback(() => {
+    if (sessionContext.caseId && messages.length > 0) {
+      saveSessionRecord({
+        caseId: sessionContext.caseId,
+        sessionId: sessionContext.sessionId ?? '',
+        anonymousToken: sessionContext.anonymousToken ?? '',
+        createdAt: Date.now(),
+        lastActiveAt: Date.now(),
+        messageCount: messages.length,
+        preview: messages.find((m) => m.role === 'user')?.content.slice(0, 40) || '新会话',
+      })
+    }
+  }, [sessionContext.caseId, sessionContext.sessionId, sessionContext.anonymousToken, messages])
+
+  const handleNewSession = useCallback(() => {
+    saveCurrentSession()
+    resetSessionContext()
+    resetConsultationInfo()
+    resetExtractedInfo()
+    clearMessages()
+    clearPersistedMiddlewareSession()
+    setSessionList(getSessionList())
+  }, [saveCurrentSession, resetSessionContext, resetConsultationInfo, resetExtractedInfo, clearMessages, clearPersistedMiddlewareSession])
+
+  const switchToSession = useCallback(async (record: SessionRecord) => {
+    saveCurrentSession()
+    clearMessages()
+    resetExtractedInfo()
+    resetConsultationInfo()
+
+    setSessionContext({
+      caseId: record.caseId,
+      sessionId: record.sessionId,
+      anonymousToken: record.anonymousToken,
+      status: 'initializing',
+      mode: 'middleware',
+      isStreaming: false,
+      lastError: null,
+    })
+    setSessionListOpen(false)
+
+    try {
+      const history = await listSessionMessages(record.sessionId, record.anonymousToken)
+      const restoredAssistantMessages = history.filter((message) => message.role !== 'user')
+      const restoredToolEvents = restoredAssistantMessages.flatMap((message) =>
+        normalizeToolEvents(message.metadata?.tool_events),
+      )
+      const latestAssistantMetadata =
+        [...restoredAssistantMessages]
+          .reverse()
+          .find((message) => message.metadata && typeof message.metadata === 'object')
+          ?.metadata ?? null
+
+      replaceMessages(
+        history.map((message) => ({
+          id: message.id,
+          role: message.role === 'user' ? 'user' : 'assistant',
+          content: message.content,
+          timestamp: message.createdAt ? Date.parse(message.createdAt) || Date.now() : Date.now(),
+        })),
+      )
+      setSessionContext((prev) => ({
+        status: 'active',
+        sessionStatus: 'active',
+        toolEvents: restoredToolEvents,
+        lastToolName: restoredToolEvents[restoredToolEvents.length - 1]?.toolName ?? null,
+        lastToolResultSummary: restoredToolEvents[restoredToolEvents.length - 1]?.summary ?? null,
+        streamSeq: 0,
+        finalPayload:
+          latestAssistantMetadata && (
+            typeof latestAssistantMetadata.summary === 'string'
+            || Array.isArray(latestAssistantMetadata.references)
+            || typeof latestAssistantMetadata.rule_version === 'string'
+          )
+            ? {
+                summary: typeof latestAssistantMetadata.summary === 'string' ? latestAssistantMetadata.summary : undefined,
+                references: normalizeReferences(latestAssistantMetadata.references),
+                ruleVersion: typeof latestAssistantMetadata.rule_version === 'string' ? latestAssistantMetadata.rule_version : undefined,
+                finishReason: typeof latestAssistantMetadata.finish_reason === 'string' ? latestAssistantMetadata.finish_reason : undefined,
+                traceId: typeof latestAssistantMetadata.trace_id === 'string' ? latestAssistantMetadata.trace_id : prev.traceId ?? undefined,
+              }
+            : null,
+      }))
+
+      // 持久化切换后的会话
+      persistMiddlewareSession({
+        consultationInfo: { evidence: [] },
+        sessionContext: {
+          caseId: record.caseId,
+          sessionId: record.sessionId,
+          anonymousToken: record.anonymousToken,
+          traceId: latestAssistantMetadata?.trace_id ?? null,
+          streamSeq: 0,
+        },
+      })
+      saveSessionRecord({ ...record, lastActiveAt: Date.now(), messageCount: history.length })
+      setSessionList(getSessionList())
+    } catch (error) {
+      console.error('切换会话失败:', error)
+      setSessionContext({
+        status: 'error',
+        isStreaming: false,
+        lastError: {
+          code: 'SWITCH_SESSION_FAILED',
+          message: '切换会话失败，请重试',
+          retryable: true,
+        },
+      })
+    }
+  }, [saveCurrentSession, clearMessages, resetExtractedInfo, resetConsultationInfo, setSessionContext, replaceMessages, persistMiddlewareSession])
+
+  // 消息变化时同步会话记录
+  useEffect(() => {
+    saveCurrentSession()
+    setSessionList(getSessionList())
+  }, [messages.length, saveCurrentSession])
+
+  // 初始加载会话列表
+  useEffect(() => {
+    setSessionList(getSessionList())
   }, [])
 
   // 大屏与横屏状态
@@ -191,6 +317,7 @@ export default function LaborRightsConsultation() {
     addMessage,
     isThinking,
     setIsThinking,
+    setInputValue,
     setDisplayText,
     scrollContainerRef,
     streamingBubbleRef,
@@ -657,6 +784,29 @@ export default function LaborRightsConsultation() {
           </div>
         )}
 
+        {sessionContext.finalPayload && !isThinking && (
+          <div className={`flex ${gapClass} justify-start ${layout === 'mobile' ? 'px-1' : ''}`}>
+            <div className={`${avatarSizeClass} rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0`}>
+              <Bot className={`${assistantIconClass} text-blue-600`} />
+            </div>
+            <details className="group cursor-pointer w-full max-w-[min(860px,100%)]">
+              <summary className="flex items-center gap-2 text-[11px] text-slate-400 hover:text-slate-600 transition-colors select-none">
+                <span className="inline-block w-0 h-0 border-l-4 border-l-slate-400 border-t-3 border-t-transparent border-b-3 border-b-transparent group-open:rotate-90 transition-transform" />
+                本轮摘要
+                {sessionContext.finalPayload.references.length > 0 && (
+                  <span className="text-slate-300">· 引用{sessionContext.finalPayload.references.length}条</span>
+                )}
+                {sessionContext.finalPayload.ruleVersion && (
+                  <span className="text-slate-300">· v{sessionContext.finalPayload.ruleVersion}</span>
+                )}
+              </summary>
+              <div className="mt-2 text-xs leading-6 text-slate-500 bg-slate-50/50 rounded-xl px-4 py-3 border border-slate-200/60 whitespace-pre-wrap">
+                {sessionContext.finalPayload.summary || '本轮已完成分析。'}
+              </div>
+            </details>
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </>
     )
@@ -862,7 +1012,7 @@ export default function LaborRightsConsultation() {
                 </Button>
               </div>
 
-              <div className="flex-1 overflow-y-auto px-5 py-5">
+              <div className="flex-1 overflow-y-auto min-h-0 px-5 py-5">
                 {isSidebarCollapsed ? (
                   <div className="flex h-full flex-col items-center justify-between py-4 text-center">
                     <div className="space-y-4">
@@ -980,28 +1130,131 @@ export default function LaborRightsConsultation() {
                       )}
                     </div>
 
-                    <div className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-5 shadow-xl shadow-black/10">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm font-medium text-slate-100">会话总结</p>
-                        <Button
-                          onClick={copySidebarSummary}
-                          variant="outline"
-                          size="sm"
-                          className="h-8 rounded-full border-white/15 bg-white/5 px-3 text-xs text-white hover:bg-white/10 hover:text-white"
-                        >
-                          {summaryCopied ? '已复制' : '复制摘要'}
-                        </Button>
+                    <div className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-4 shadow-xl shadow-black/10">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${
+                            sessionContext.status === 'streaming' ? 'bg-blue-400 animate-pulse' :
+                            sessionContext.status === 'initializing' ? 'bg-amber-400 animate-pulse' :
+                            sessionContext.status === 'error' ? 'bg-red-400' :
+                            sessionContext.status === 'active' ? 'bg-emerald-400' : 'bg-slate-500'
+                          }`} />
+                          <p className="text-xs font-medium text-slate-100 truncate">
+                            {sessionContext.status === 'streaming' ? '响应中' :
+                             sessionContext.status === 'initializing' ? '连接中...' :
+                             sessionContext.status === 'error' ? '连接异常' :
+                             sessionContext.status === 'active' ? '会话进行中' : '等待开始'}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {sessionContext.caseId && (
+                            <Button
+                              onClick={async () => {
+                                await navigator.clipboard.writeText(`Case: ${sessionContext.caseId || '-'}\nSession: ${sessionContext.sessionId || '-'}\nTrace: ${sessionContext.traceId || '-'}`)
+                              }}
+                              variant="outline"
+                              size="sm"
+                              className="h-6 rounded-full border-white/15 bg-white/5 px-2 text-[10px] text-white hover:bg-white/10 hover:text-white"
+                            >
+                              复制ID
+                            </Button>
+                          )}
+                          <Button
+                            onClick={handleNewSession}
+                            variant="outline"
+                            size="sm"
+                            className="h-6 rounded-full border-white/15 bg-white/5 px-2 text-[10px] text-white hover:bg-white/10 hover:text-white"
+                          >
+                            新会话
+                          </Button>
+                        </div>
                       </div>
-                      <p className="rounded-2xl bg-white/5 px-4 py-3 text-sm leading-6 text-slate-300">
-                        {conversationSummary}
-                      </p>
-                      <div className="rounded-2xl bg-black/10 px-4 py-3 text-xs leading-6 text-slate-300">
-                        最新诉求：{latestUserMessage ? summarizeText(latestUserMessage.content) : '等待用户输入。'}
+                      {sessionContext.status === 'error' && sessionContext.lastError && (
+                        <div className="rounded-xl bg-red-500/10 border border-red-500/20 px-3 py-2 text-[11px] text-red-300">
+                          {sessionContext.lastError.message}
+                          {sessionContext.lastError.retryable && <span className="ml-1">（可重试）</span>}
+                        </div>
+                      )}
+                      {sessionContext.caseId && (
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                            <span className="truncate">{shortenId(sessionContext.caseId)}</span>
+                            <span className="text-slate-600">·</span>
+                            <span className="truncate">{shortenId(sessionContext.sessionId)}</span>
+                          </div>
+                          {sessionContext.traceId && (
+                            <div className="text-[11px] text-slate-400 truncate">
+                              trace: {shortenId(sessionContext.traceId)}
+                              {sessionContext.streamSeq != null && <span className="ml-2 text-slate-600">seq {sessionContext.streamSeq}</span>}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      <div className="border-t border-white/10 pt-3 space-y-2">
+                        <p className="text-xs leading-5 text-slate-300 line-clamp-3">
+                          {conversationSummary}
+                        </p>
+                        <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-400">
+                          <div className="truncate">← {latestUserMessage ? summarizeText(latestUserMessage.content) : '等待输入'}</div>
+                          <div className="truncate">→ {latestAssistantMessage ? summarizeText(latestAssistantMessage.content) : '等待回复'}</div>
+                        </div>
                       </div>
-                      <div className="rounded-2xl bg-black/10 px-4 py-3 text-xs leading-6 text-slate-300">
-                        最新输出：{latestAssistantMessage ? summarizeText(latestAssistantMessage.content) : '等待系统回复。'}
-                      </div>
+                      <Button
+                        onClick={copySidebarSummary}
+                        variant="outline"
+                        size="sm"
+                        className="h-6 w-full rounded-full border-white/15 bg-white/5 text-[11px] text-white hover:bg-white/10 hover:text-white"
+                      >
+                        {summaryCopied ? '已复制' : '复制摘要'}
+                      </Button>
                     </div>
+
+                    {sessionList.length > 0 && (
+                      <div className="relative">
+                        <button
+                          onClick={() => setSessionListOpen(!sessionListOpen)}
+                          className="flex items-center justify-between w-full rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-xs font-medium text-slate-300 hover:bg-white/10 transition-colors shadow-xl shadow-black/10"
+                        >
+                          <span>历史会话（{sessionList.length}）</span>
+                          <span className={`text-slate-500 transition-transform ${sessionListOpen ? 'rotate-180' : ''}`}>▾</span>
+                        </button>
+                        {sessionListOpen && (
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setSessionListOpen(false)} />
+                            <div className="absolute left-0 right-0 z-50 mt-1 rounded-2xl border border-white/10 bg-slate-800/95 backdrop-blur-xl px-2 py-2 shadow-2xl shadow-black/40 max-h-64 overflow-y-auto">
+                              {sessionList.map((record) => {
+                                const isActive = record.sessionId === sessionContext.sessionId
+                                return (
+                                  <button
+                                    key={record.sessionId}
+                                    onClick={() => {
+                                      if (isActive) { setSessionListOpen(false); return }
+                                      switchToSession(record)
+                                    }}
+                                    className={`w-full text-left px-3 py-2.5 rounded-xl text-[11px] transition-colors ${
+                                      isActive
+                                        ? 'bg-blue-500/15 text-blue-300'
+                                        : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="truncate font-medium">{record.preview || '新会话'}</span>
+                                      {record.lastActiveAt && (
+                                        <span className="shrink-0 text-slate-500">{formatSessionTime(record.lastActiveAt)}</span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-0.5 text-slate-500">
+                                      <span>{record.messageCount}条消息</span>
+                                      {isActive && <span className="text-blue-400">· 当前</span>}
+                                    </div>
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
 
                     <div className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-5 shadow-xl shadow-black/10">
                       <div className="flex items-center justify-between gap-3">
@@ -1156,9 +1409,11 @@ export default function LaborRightsConsultation() {
                   <h2 className="text-xl font-semibold text-slate-900">劳动维权咨询</h2>
                   <p className="mt-1 text-sm text-slate-500">桌面端专用布局 · 可拖拽侧边栏 · 动态会话摘要</p>
                 </div>
-                <div className="flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-700">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                  在线咨询
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-700">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                    在线咨询
+                  </div>
                 </div>
               </header>
 
@@ -1260,7 +1515,53 @@ export default function LaborRightsConsultation() {
             <p className="text-xs text-slate-500">西安地区 · 智能咨询</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
+          {sessionList.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => setSessionListOpen(!sessionListOpen)}
+                className="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-medium bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors"
+              >
+                会话{sessionList.length}
+                <span className={`ml-0.5 transition-transform text-[9px] ${sessionListOpen ? 'rotate-180' : ''}`}>▾</span>
+              </button>
+              {sessionListOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setSessionListOpen(false)} />
+                  <div className="absolute right-0 top-full mt-1 z-50 w-72 rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-black/10 px-2 py-2 max-h-72 overflow-y-auto">
+                    {sessionList.map((record) => {
+                      const isActive = record.sessionId === sessionContext.sessionId
+                      return (
+                        <button
+                          key={record.sessionId}
+                          onClick={() => {
+                            if (isActive) { setSessionListOpen(false); return }
+                            switchToSession(record)
+                          }}
+                          className={`w-full text-left px-3 py-2 rounded-xl text-[11px] transition-colors ${
+                            isActive
+                              ? 'bg-blue-50 text-blue-700'
+                              : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate font-medium">{record.preview || '新会话'}</span>
+                            {record.lastActiveAt && (
+                              <span className="shrink-0 text-slate-400">{formatSessionTime(record.lastActiveAt)}</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5 text-slate-400">
+                            <span>{record.messageCount}条</span>
+                            {isActive && <span className="text-blue-500">· 当前</span>}
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
             <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-1.5 animate-pulse" />
             在线

@@ -64,6 +64,7 @@ export interface SessionContextState {
   currentMessageId: string | null
   isStreaming: boolean
   streamSeq: number
+  currentTurnId: number
   traceId: string | null
   status: SessionRuntimeStatus
   mode: ConsultationRuntimeMode
@@ -82,6 +83,7 @@ const initialSessionContext: SessionContextState = {
   currentMessageId: null,
   isStreaming: false,
   streamSeq: 0,
+  currentTurnId: 0,
   traceId: null,
   status: 'idle',
   mode: 'local',

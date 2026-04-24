@@ -198,6 +198,7 @@ export interface DialogueMessage {
   role: MessageRole
   content: string
   timestamp: number
+  turnId?: number
   metadata?: {
     type?: 'emotion_detected' | 'info_extracted' | 'question' | 'document'
     data?: Record<string, unknown>
