@@ -580,17 +580,23 @@ export default function LaborRightsConsultation() {
                 <Bot className={`${assistantIconClass} text-blue-600`} />
               </div>
             )}
-            <div
-              className={`${messageWidthClass} rounded-2xl ${bubbleClass} ${
-                message.role === 'user'
-                  ? 'bg-blue-600 text-white rounded-tr-sm'
-                  : 'bg-white border border-slate-200 text-slate-700 rounded-tl-sm shadow-sm'
-              }`}
-            >
-              <div className={getMarkdownClassName(textClass, message.role === 'user' ? 'user' : 'assistant')}>
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+            {message.role === 'user' ? (
+              <div className={`${messageWidthClass} rounded-2xl ${bubbleClass} bg-blue-600 text-white rounded-tr-sm`}>
+                <div className={getMarkdownClassName(textClass, 'user')}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className={
+                layout === 'desktop'
+                  ? 'w-full max-w-[min(860px,100%)]'
+                  : 'w-full min-w-0 max-w-[calc(100vw-4.75rem)] sm:max-w-[min(860px,100%)]'
+              }>
+                <div className={getMarkdownClassName(textClass, 'assistant')}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                </div>
+              </div>
+            )}
             {message.role === 'user' && (
               <div className={`${avatarSizeClass} rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0`}>
                 <User className={`${assistantIconClass} text-slate-600`} />
@@ -604,7 +610,12 @@ export default function LaborRightsConsultation() {
             <div className={`${avatarSizeClass} rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0`}>
               <Bot className={`${assistantIconClass} text-blue-600`} />
             </div>
-            <div ref={streamingBubbleRef} className={`bg-white border border-slate-200 rounded-2xl rounded-tl-sm ${bubbleClass} shadow-sm min-h-[44px]`}>
+            <div ref={streamingBubbleRef}
+              className={
+                layout === 'desktop'
+                  ? 'w-full max-w-[min(860px,100%)]'
+                  : 'w-full min-w-0 max-w-[calc(100vw-4.75rem)] sm:max-w-[min(860px,100%)]'
+              }>
               {displayText ? (
                 <div className={getMarkdownClassName(textClass, 'assistant')}>
                   {streamingMarkdown.rendered ? (
