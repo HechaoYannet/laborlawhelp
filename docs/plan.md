@@ -82,6 +82,7 @@
   - `src/app/consultation/page.tsx` 由本地打字机模拟改为真实 SSE 流消费。
   - 前端新增 API 客户端层，封装 cases/sessions/chat/summary/document/triage。
   - 本地 `src/lib/calculation.ts`、`src/lib/case-triage.ts` 仅保留回退开关路径（默认关闭）。
+  - **2026-04 V1 重构完成**：page.tsx 从 ~2250 行降至 ~1400 行，提取 4 个自定义 Hook 和 2 个 lib 文件。use-case-store 清理 20+ 未用操作。AI 聊天气泡废除，内容宽度统一为 `max-w-[min(860px,100%)]`。
 - 验收：
   - 咨询主流程默认不再调用本地规则计算。
   - 前端可展示中间件返回的工具轨迹、结构化摘要、引用来源与规则版本。
