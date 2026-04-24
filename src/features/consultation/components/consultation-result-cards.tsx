@@ -339,28 +339,32 @@ function ResultCardShell({
   return (
     <Card
       className={cn(
-        'group relative overflow-hidden rounded-[26px] border bg-white/96 py-0 shadow-[0_18px_48px_rgba(15,23,42,0.08)] ring-1 ring-black/5 backdrop-blur transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_22px_56px_rgba(15,23,42,0.12)]',
+        'group relative overflow-hidden border bg-white/96 py-0 backdrop-blur transition-all duration-300',
+        'rounded-[26px] shadow-[0_18px_48px_rgba(15,23,42,0.08)] ring-1 ring-black/5 hover:-translate-y-0.5 hover:shadow-[0_22px_56px_rgba(15,23,42,0.12)]',
+        'max-sm:rounded-xl max-sm:shadow-sm max-sm:ring-0 max-sm:hover:translate-y-0 max-sm:hover:shadow-sm',
         accentClassName,
       )}
     >
-      <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-current/90 via-current/55 to-transparent opacity-85" />
+      <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-current/90 via-current/55 to-transparent opacity-85 max-sm:h-1" />
 
-      <CardHeader className="gap-3 px-4 pb-3 pt-4 sm:gap-4 sm:px-5 sm:pb-4 sm:pt-5 md:px-6">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-3">
+      <CardHeader className="gap-2 px-3 pb-2 pt-3 sm:gap-4 sm:px-5 sm:pb-4 sm:pt-5 md:px-6 max-sm:space-y-2">
+        <div className="flex flex-wrap items-start justify-between gap-2 sm:gap-3">
+          <div className="flex min-w-0 items-start gap-2 sm:gap-3">
             <div
               className={cn(
-                'flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white shadow-sm',
+                'flex shrink-0 items-center justify-center rounded-2xl border bg-white shadow-sm',
+                'h-9 w-9 sm:h-11 sm:w-11',
                 chipClassName,
               )}
             >
               {icon}
             </div>
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                 <Badge
                   className={cn(
-                    'rounded-full border px-2.5 py-1 text-[11px] font-semibold',
+                    'rounded-full border font-semibold',
+                    'px-2 py-0.5 text-[10px] sm:px-2.5 sm:py-1 sm:text-[11px]',
                     chipClassName,
                   )}
                   variant="outline"
@@ -369,7 +373,7 @@ function ResultCardShell({
                 </Badge>
                 {meta}
               </div>
-              <CardTitle className="mt-2 text-base font-semibold leading-6 text-slate-950 md:text-lg">
+              <CardTitle className="mt-1.5 text-sm font-semibold leading-5 text-slate-950 sm:mt-2 sm:text-base sm:leading-6 md:text-lg">
                 {title}
               </CardTitle>
             </div>
@@ -377,18 +381,18 @@ function ResultCardShell({
         </div>
 
         {summary ? (
-          <div className="rounded-2xl border border-slate-200/70 bg-slate-50/90 px-4 py-3 text-sm leading-6 text-slate-600">
+          <div className="rounded-xl border border-slate-200/70 bg-slate-50/90 px-3 py-2 text-xs leading-5 text-slate-600 sm:rounded-2xl sm:px-4 sm:py-3 sm:text-sm sm:leading-6">
             {summary}
           </div>
         ) : null}
       </CardHeader>
 
-      <CardContent className="space-y-3 px-4 pb-4 sm:space-y-4 sm:px-5 sm:pb-5 md:px-6 md:pb-6">
+      <CardContent className="space-y-2 px-3 pb-3 sm:space-y-4 sm:px-5 sm:pb-5 md:px-6 md:pb-6 max-sm:space-y-2.5">
         {children}
 
         {actions ? (
-          <div className="border-t border-slate-200/80 pt-4">
-            <div className="flex flex-wrap gap-2">{actions}</div>
+          <div className="border-t border-slate-200/80 pt-3 sm:pt-4">
+            <div className="flex flex-wrap gap-1.5 sm:gap-2">{actions}</div>
           </div>
         ) : null}
       </CardContent>
@@ -408,12 +412,17 @@ function MetricTile({
   return (
     <div
       className={cn(
-        'rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm',
+        'rounded-xl border border-slate-200/80 bg-white shadow-sm sm:rounded-2xl',
+        'px-3 py-2 sm:px-4 sm:py-3',
         toneClassName,
       )}
     >
-      <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">{label}</p>
-      <div className="mt-1 text-sm font-semibold text-slate-900 md:text-base">{value}</div>
+      <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-slate-500 sm:text-[11px]">
+        {label}
+      </p>
+      <div className="mt-0.5 text-xs font-semibold text-slate-900 sm:mt-1 sm:text-sm md:text-base">
+        {value}
+      </div>
     </div>
   )
 }
@@ -428,9 +437,9 @@ function SectionBlock({
   children: ReactNode
 }) {
   return (
-    <section className={cn('rounded-2xl border border-slate-200/80 bg-slate-50/75 p-3 sm:p-4', toneClassName)}>
-      <p className="text-sm font-semibold text-slate-900">{title}</p>
-      <div className="mt-3">{children}</div>
+    <section className={cn('rounded-xl border border-slate-200/80 bg-slate-50/75 p-2.5 sm:rounded-2xl sm:p-4', toneClassName)}>
+      <p className="text-xs font-semibold text-slate-900 sm:text-sm">{title}</p>
+      <div className="mt-2 sm:mt-3">{children}</div>
     </section>
   )
 }
@@ -452,7 +461,7 @@ function renderActions(
       size="sm"
       variant="outline"
       className={cn(
-        'h-9 rounded-full border bg-white px-4 text-sm text-slate-700 shadow-sm hover:bg-slate-50',
+        'h-8 rounded-full border bg-white text-xs text-slate-700 shadow-sm hover:bg-slate-50 sm:h-9 sm:px-4 sm:text-sm',
         accentClassName,
       )}
       onClick={() => onAction?.(action.action, payload)}
@@ -492,7 +501,7 @@ function renderFactSummaryCard(
         'border-sky-200 text-sky-700 hover:bg-sky-50',
       )}
     >
-      <div className="grid gap-2.5 min-[420px]:grid-cols-2">
+      <div className="grid grid-cols-2 gap-2 sm:gap-2.5">
         <MetricTile label="争议类型" value={disputeTypes.length > 0 ? disputeTypes.map(formatValueLabel).join(' / ') : '待补充'} />
         <MetricTile
           label="待补字段"
@@ -507,11 +516,11 @@ function renderFactSummaryCard(
 
       {factEntries.length > 0 ? (
         <SectionBlock title="已识别关键信息">
-          <div className="grid gap-2 min-[420px]:grid-cols-2">
+          <div className="grid grid-cols-1 gap-1.5 min-[420px]:grid-cols-2 sm:gap-2">
             {factEntries.map(([key, value]) => (
-              <div key={key} className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm">
-                <p className="text-xs font-medium text-slate-500">{formatFieldLabel(key)}</p>
-                <div className="mt-1 text-sm leading-6 text-slate-800">{renderValue(value, key)}</div>
+              <div key={key} className="rounded-xl border border-slate-200/80 bg-white px-3 py-2 shadow-sm sm:rounded-2xl sm:px-4 sm:py-3">
+                <p className="text-[10px] font-medium text-slate-500 sm:text-xs">{formatFieldLabel(key)}</p>
+                <div className="mt-0.5 text-xs leading-5 text-slate-800 sm:mt-1 sm:text-sm sm:leading-6">{renderValue(value, key)}</div>
               </div>
             ))}
           </div>
@@ -520,19 +529,19 @@ function renderFactSummaryCard(
 
       {missing.length > 0 ? (
         <SectionBlock title="建议优先补充" toneClassName="border-amber-200/80 bg-amber-50/70">
-          <div className="grid gap-2">
+          <div className="grid gap-1.5 sm:gap-2">
             {missing.map((item, index) => (
               <div
                 key={`${index}-${String(item.field ?? item.label ?? '')}`}
-                className="flex items-start gap-3 rounded-2xl border border-amber-200/80 bg-white/85 px-4 py-3"
+                className="flex items-start gap-2 rounded-xl border border-amber-200/80 bg-white/85 px-3 py-2.5 sm:gap-3 sm:rounded-2xl sm:px-4 sm:py-3"
               >
-                <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600 sm:h-4 sm:w-4" />
                 <div>
-                  <p className="text-sm font-medium text-slate-900">
+                  <p className="text-xs font-medium text-slate-900 sm:text-sm">
                     {String(item.label ?? formatFieldLabel(String(item.field ?? '待补信息')))}
                   </p>
                   {typeof item.reason === 'string' && item.reason ? (
-                    <p className="mt-1 text-xs leading-5 text-slate-600">{formatValueLabel(item.reason)}</p>
+                    <p className="mt-0.5 text-[11px] leading-4 text-slate-600 sm:mt-1 sm:text-xs sm:leading-5">{formatValueLabel(item.reason)}</p>
                   ) : null}
                 </div>
               </div>
@@ -572,31 +581,31 @@ function renderCompensationCard(
       )}
     >
       {totalAmount !== null ? (
-        <div className="rounded-[24px] border border-rose-200/80 bg-[linear-gradient(135deg,rgba(255,241,242,0.95),rgba(255,255,255,0.98))] px-5 py-4 shadow-sm">
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-rose-500">赔偿测算</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-950">{formatCurrency(totalAmount)}</p>
-          <p className="mt-1 text-sm text-slate-600">以下分项用于解释总额构成，便于继续追问或生成文书。</p>
+        <div className="rounded-xl border border-rose-200/80 bg-[linear-gradient(135deg,rgba(255,241,242,0.95),rgba(255,255,255,0.98))] px-4 py-3 shadow-sm sm:rounded-[24px] sm:px-5 sm:py-4">
+          <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-rose-500 sm:text-xs">赔偿测算</p>
+          <p className="mt-1 text-xl font-semibold text-slate-950 sm:mt-2 sm:text-2xl">{formatCurrency(totalAmount)}</p>
+          <p className="mt-0.5 text-xs text-slate-600 sm:mt-1 sm:text-sm">以下分项用于解释总额构成，便于继续追问或生成文书。</p>
         </div>
       ) : null}
 
       {calculations.length > 0 ? (
         <SectionBlock title="分项明细">
-          <div className="grid gap-2.5">
+          <div className="grid gap-1.5 sm:gap-2.5">
             {calculations.map((item, index) => (
               <div
                 key={`${index}-${String(item.item ?? '')}`}
-                className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 shadow-sm"
+                className="rounded-xl border border-slate-200/80 bg-white px-3 py-3 shadow-sm sm:rounded-2xl sm:px-4 sm:py-4"
               >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">
+                <div className="flex flex-wrap items-start justify-between gap-2 sm:gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-slate-900 sm:text-sm">
                       {String(item.item ?? '计算项')}
                     </p>
-                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                    <p className="mt-0.5 text-[11px] leading-4 text-slate-500 sm:mt-1 sm:text-xs sm:leading-5">
                       {String(item.formula ?? '暂无公式说明')}
                     </p>
                   </div>
-                  <div className="rounded-full bg-rose-50 px-3 py-1 text-sm font-semibold text-rose-700">
+                  <div className="shrink-0 rounded-full bg-rose-50 px-2.5 py-0.5 text-xs font-semibold text-rose-700 sm:px-3 sm:py-1 sm:text-sm">
                     {typeof item.amount === 'number'
                       ? formatCurrency(item.amount)
                       : formatValueLabel(String(item.amount ?? '--'))}
@@ -650,32 +659,32 @@ function renderCaseSummaryCard(
         'border-emerald-200 text-emerald-700 hover:bg-emerald-50',
       )}
     >
-      <div className="grid gap-2.5 min-[420px]:grid-cols-2 md:grid-cols-3">
+      <div className="grid grid-cols-3 gap-2 sm:gap-2.5 md:grid-cols-3">
         <MetricTile label="申请人" value={typeof applicant.name === 'string' && applicant.name ? applicant.name : '待补充'} />
         <MetricTile label="被申请人" value={typeof respondent.name === 'string' && respondent.name ? respondent.name : '待补充'} />
         <MetricTile label="地区" value={region} />
       </div>
 
       <SectionBlock title="劳动关系概览">
-        <div className="grid gap-2 min-[420px]:grid-cols-2">
-          <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm">
-            <p className="text-xs font-medium text-slate-500">在职期间</p>
-            <div className="mt-1 text-sm leading-6 text-slate-800">{renderValue(employment.period, 'period')}</div>
+        <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
+          <div className="rounded-xl border border-slate-200/80 bg-white px-2.5 py-2 shadow-sm sm:rounded-2xl sm:px-4 sm:py-3">
+            <p className="text-[10px] font-medium text-slate-500 sm:text-xs">在职期间</p>
+            <div className="mt-0.5 text-xs leading-5 text-slate-800 sm:mt-1 sm:text-sm sm:leading-6">{renderValue(employment.period, 'period')}</div>
           </div>
-          <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm">
-            <p className="text-xs font-medium text-slate-500">岗位</p>
-            <div className="mt-1 text-sm leading-6 text-slate-800">{renderValue(employment.position, 'position')}</div>
+          <div className="rounded-xl border border-slate-200/80 bg-white px-2.5 py-2 shadow-sm sm:rounded-2xl sm:px-4 sm:py-3">
+            <p className="text-[10px] font-medium text-slate-500 sm:text-xs">岗位</p>
+            <div className="mt-0.5 text-xs leading-5 text-slate-800 sm:mt-1 sm:text-sm sm:leading-6">{renderValue(employment.position, 'position')}</div>
           </div>
           {Object.keys(employment).length > 0 ? (
-            <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm md:col-span-2">
-              <p className="text-xs font-medium text-slate-500">劳动关系详情</p>
-              <div className="mt-1 text-sm leading-6 text-slate-800">{renderValue(employment, 'employment')}</div>
+            <div className="rounded-xl border border-slate-200/80 bg-white px-2.5 py-2 shadow-sm sm:rounded-2xl sm:px-4 sm:py-3 md:col-span-2">
+              <p className="text-[10px] font-medium text-slate-500 sm:text-xs">劳动关系详情</p>
+              <div className="mt-0.5 text-xs leading-5 text-slate-800 sm:mt-1 sm:text-sm sm:leading-6">{renderValue(employment, 'employment')}</div>
             </div>
           ) : null}
           {Object.keys(termination).length > 0 ? (
-            <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm md:col-span-2">
-              <p className="text-xs font-medium text-slate-500">解除 / 终止</p>
-              <div className="mt-1 text-sm leading-6 text-slate-800">{renderValue(termination, 'termination')}</div>
+            <div className="rounded-xl border border-slate-200/80 bg-white px-2.5 py-2 shadow-sm sm:rounded-2xl sm:px-4 sm:py-3 md:col-span-2">
+              <p className="text-[10px] font-medium text-slate-500 sm:text-xs">解除 / 终止</p>
+              <div className="mt-0.5 text-xs leading-5 text-slate-800 sm:mt-1 sm:text-sm sm:leading-6">{renderValue(termination, 'termination')}</div>
             </div>
           ) : null}
         </div>
@@ -683,17 +692,17 @@ function renderCaseSummaryCard(
 
       {summary ? (
         <SectionBlock title="争议摘要">
-          <p className="text-sm leading-6 text-slate-700">{summary}</p>
+          <p className="text-xs leading-5 text-slate-700 sm:text-sm sm:leading-6">{summary}</p>
         </SectionBlock>
       ) : null}
 
       {claims.length > 0 ? (
         <SectionBlock title="当前诉求">
-          <div className="grid gap-2">
+          <div className="grid gap-1.5 sm:gap-2">
             {claims.map((claim) => (
               <div
                 key={claim}
-                className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 text-sm leading-6 text-slate-700 shadow-sm"
+                className="rounded-xl border border-slate-200/80 bg-white px-3 py-2 text-xs leading-5 text-slate-700 shadow-sm sm:rounded-2xl sm:px-4 sm:py-3 sm:text-sm sm:leading-6"
               >
                 {formatValueLabel(claim)}
               </div>
@@ -702,7 +711,7 @@ function renderCaseSummaryCard(
         </SectionBlock>
       ) : null}
 
-      {generatedAt ? <p className="text-xs text-slate-500">生成时间：{generatedAt}</p> : null}
+      {generatedAt ? <p className="text-[11px] text-slate-500 sm:text-xs">生成时间：{generatedAt}</p> : null}
     </ResultCardShell>
   )
 }
@@ -750,7 +759,7 @@ function renderCard(
 }
 
 function getCardEventKey(event: SessionToolEvent) {
-  return `${event.createdAt}-${event.toolName}-${event.cardType ?? 'unknown'}`
+  return `${event.createdAt}-${event.toolName ?? 'unknown'}-${event.cardType ?? 'unknown'}`
 }
 
 function getCardTabLabel(event: SessionToolEvent, index: number) {
@@ -840,17 +849,17 @@ export function ConsultationResultCards({ events, onAction }: ConsultationResult
     completedCards[completedCards.length - 1]
 
   return (
-    <div className="space-y-4 px-2 sm:px-0">
+    <div className="space-y-3 px-1 sm:space-y-4 sm:px-0">
       <div className="relative">
-        <div className="relative flex items-center gap-2 px-1.5 text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500 sm:px-1">
-          <Sparkles className="h-3.5 w-3.5 text-blue-600" />
+        <div className="relative flex items-center gap-1.5 px-1.5 text-[10px] font-medium uppercase tracking-[0.16em] text-slate-500 sm:gap-2 sm:px-1 sm:text-[11px]">
+          <Sparkles className="h-3 w-3 text-blue-600 sm:h-3.5 sm:w-3.5" />
           结果卡片导航
         </div>
-        <div className="relative mt-3 overflow-hidden rounded-full">
-          <div className="pointer-events-none absolute inset-y-0 left-0 z-20 w-8 bg-gradient-to-r from-white via-white/95 to-transparent sm:w-10" />
-          <div className="pointer-events-none absolute inset-y-0 right-0 z-20 w-8 bg-gradient-to-l from-white via-white/95 to-transparent sm:w-10" />
-          <div className="overflow-x-auto px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:px-4">
-            <div className="flex min-w-max items-center gap-2 py-1">
+        <div className="relative mt-2 overflow-hidden rounded-full sm:mt-3">
+          <div className="pointer-events-none absolute inset-y-0 left-0 z-20 w-6 bg-gradient-to-r from-white via-white/95 to-transparent sm:w-10" />
+          <div className="pointer-events-none absolute inset-y-0 right-0 z-20 w-6 bg-gradient-to-l from-white via-white/95 to-transparent sm:w-10" />
+          <div className="overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:px-4">
+            <div className="flex min-w-max items-center gap-1.5 py-1 sm:gap-2">
               {completedCards.map((event, index) => {
                 const tone = getCardTabTone(event)
                 const cardKey = getCardEventKey(event)
@@ -859,17 +868,18 @@ export function ConsultationResultCards({ events, onAction }: ConsultationResult
 
                 return (
                   <button
-                    key={cardKey}
+                    key={`${cardKey}-${index}`}
                     type="button"
                     className={cn(
                       'group relative inline-flex shrink-0 items-center overflow-hidden border text-sm font-medium transition-[width,padding,background-color,border-color,color,box-shadow,transform] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 active:scale-[0.98]',
                       isActive
                         ? cn(
-                            'h-10 w-[clamp(8rem,40vw,14rem)] justify-start gap-2 rounded-full px-3.5 py-2 sm:h-11 sm:px-4 sm:py-2.5',
+                            'h-9 justify-start gap-1.5 rounded-full px-3 py-2 sm:h-11 sm:gap-2 sm:px-4 sm:py-2.5',
+                            'w-[clamp(6rem,36vw,14rem)] sm:w-[clamp(8rem,40vw,14rem)]',
                             tone.active,
                           )
-                        : cn('h-9 w-9 justify-center rounded-full p-0 sm:h-10 sm:w-10', tone.idle),
+                        : cn('h-8 w-8 justify-center rounded-full p-0 sm:h-10 sm:w-10', tone.idle),
                     )}
                     onClick={() => setActiveCardKey(cardKey)}
                     aria-pressed={isActive}
@@ -879,7 +889,7 @@ export function ConsultationResultCards({ events, onAction }: ConsultationResult
                     <span
                       className={cn(
                         'relative z-10 flex items-center justify-center rounded-full border border-current/10 bg-white/85 transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]',
-                        isActive ? 'h-6 w-6 shrink-0 scale-100' : 'h-6 w-6 scale-90',
+                        isActive ? 'h-5 w-5 shrink-0 scale-100 sm:h-6 sm:w-6' : 'h-5 w-5 scale-90 sm:h-6 sm:w-6',
                       )}
                     >
                       {tone.icon}
@@ -888,12 +898,12 @@ export function ConsultationResultCards({ events, onAction }: ConsultationResult
                       <>
                         <span
                           className={cn(
-                            'relative z-10 h-2 w-2 shrink-0 rounded-full transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]',
+                            'relative z-10 h-1.5 w-1.5 shrink-0 rounded-full transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] sm:h-2 sm:w-2',
                             tone.dot,
                             'scale-110 animate-in fade-in-0 zoom-in-75',
                           )}
                         />
-                        <span className="relative z-10 min-w-0 truncate whitespace-nowrap animate-in slide-in-from-left-2 fade-in-0 duration-300">
+                        <span className="relative z-10 min-w-0 truncate whitespace-nowrap text-xs sm:text-sm animate-in slide-in-from-left-2 fade-in-0 duration-300">
                           {label}
                         </span>
                       </>
@@ -915,7 +925,7 @@ export function ConsultationResultCards({ events, onAction }: ConsultationResult
 
       <div
         key={getCardEventKey(activeCard)}
-        className="animate-in slide-in-from-bottom-3 fade-in-0 px-1.5 duration-300 sm:px-0"
+        className="animate-in slide-in-from-bottom-3 fade-in-0 px-0 duration-300 sm:px-1.5"
       >
         {renderCard(activeCard, onAction)}
       </div>

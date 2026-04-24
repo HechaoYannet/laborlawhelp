@@ -255,6 +255,12 @@ function getMarkdownClassName(textClass: string, role: 'user' | 'assistant') {
   }`
 }
 
+let toolEventSeq = 0
+function nextToolEventCreatedAt() {
+  toolEventSeq += 1
+  return Date.now() + toolEventSeq
+}
+
 function shortenId(value: string | null | undefined) {
   if (!value) return '未创建'
   if (value.length <= 12) return value
@@ -997,7 +1003,7 @@ export default function LaborRightsConsultation() {
                 summary: '工具调用中',
                 references: [],
                 traceId,
-                createdAt: Date.now(),
+                createdAt: nextToolEventCreatedAt(),
               },
             ],
           }))
@@ -1048,7 +1054,7 @@ export default function LaborRightsConsultation() {
                 cardPayload,
                 cardActions,
                 traceId,
-                createdAt: Date.now(),
+                createdAt: nextToolEventCreatedAt(),
               })
             }
 
