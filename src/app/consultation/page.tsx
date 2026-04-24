@@ -551,11 +551,16 @@ export default function LaborRightsConsultation() {
     if (!container) return
 
     const cancelFollowOnUserIntent = () => {
-      programmaticScrollUntilRef.current = 0
-      container.scrollTo({ top: container.scrollTop, behavior: 'auto' })
+      // 程序化滚动期间忽略用户事件误触
+      if (Date.now() < programmaticScrollUntilRef.current) return
+      // 打断正在进行的平滑滚动动画，让用户操控立即生效
+      const c = scrollContainerRef.current
+      if (c) {
+        c.scrollTo({ top: c.scrollTop, behavior: 'auto' })
+      }
       followModeRef.current = 'none'
       shouldFollowStreamingBubbleRef.current = false
-      userScrollHoldUntilRef.current = Date.now() + 700
+      userScrollHoldUntilRef.current = Date.now() + 300
     }
 
     const updateScrollButtonState = () => {
@@ -564,6 +569,17 @@ export default function LaborRightsConsultation() {
       const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight
       const hasEnoughMessages = messages.length > 3
       const nearBottom = distanceToBottom <= hiddenThreshold
+
+      // 程序化滚动期间，不修改跟随状态
+      if (Date.now() < programmaticScrollUntilRef.current) {
+        setIsNearBottom(nearBottom)
+        isNearBottomRef.current = nearBottom
+        if (nearBottom) {
+          setUnreadCount(0)
+        }
+        return
+      }
+
       const isUserHoldActive = Date.now() < userScrollHoldUntilRef.current
 
       setIsNearBottom(nearBottom)
@@ -606,13 +622,11 @@ export default function LaborRightsConsultation() {
 
     container.addEventListener('wheel', cancelFollowOnUserIntent, { passive: true })
     container.addEventListener('touchmove', cancelFollowOnUserIntent, { passive: true })
-    container.addEventListener('pointerdown', cancelFollowOnUserIntent, { passive: true })
     container.addEventListener('scroll', updateScrollButtonState)
     updateScrollButtonState()
     return () => {
       container.removeEventListener('wheel', cancelFollowOnUserIntent)
       container.removeEventListener('touchmove', cancelFollowOnUserIntent)
-      container.removeEventListener('pointerdown', cancelFollowOnUserIntent)
       container.removeEventListener('scroll', updateScrollButtonState)
     }
   }, [getStreamingBubbleMetrics, isThinking, messages.length, isLandscape, isCompactLandscape, unreadCount])
@@ -624,6 +638,7 @@ export default function LaborRightsConsultation() {
     }
   }, [messages.length, isNearBottom])
 
+  // 流式内容变化时跟随气泡：displayText 变化 + ResizeObserver 双重保障
   useEffect(() => {
     if (!isThinking || !displayText) return
 
@@ -649,6 +664,32 @@ export default function LaborRightsConsultation() {
       followStreamingBubble('smooth')
     }
   }, [displayText, followStreamingBubble, getStreamingBubbleMetrics, isThinking])
+
+  // 流式气泡 DOM 尺寸变化时即时跟随（绕过 React 批次延迟）
+  useEffect(() => {
+    const bubble = streamingBubbleRef.current
+    if (!bubble || !isThinking) return
+
+    // 气泡刚出现时落底一次
+    const container = scrollContainerRef.current
+    if (container) {
+      const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+      if (distanceToBottom > 0) {
+        followModeRef.current = 'streaming'
+        shouldFollowStreamingBubbleRef.current = true
+        followStreamingBubble('instant' as ScrollBehavior)
+      }
+    }
+
+    const ro = new ResizeObserver(() => {
+      if (shouldFollowStreamingBubbleRef.current && followModeRef.current !== 'none') {
+        followStreamingBubble('instant' as ScrollBehavior)
+      }
+    })
+    ro.observe(bubble)
+
+    return () => ro.disconnect()
+  }, [isThinking, followStreamingBubble])
 
   // 语音输入同步到输入框
   useEffect(() => {
@@ -948,7 +989,7 @@ export default function LaborRightsConsultation() {
       traceId: null,
       lastToolName: null,
       lastToolResultSummary: null,
-      toolEvents: [],
+      // 不清除 toolEvents：保留此前轮次的结果卡片，新卡片追加在后面
       finalPayload: null,
       lastError: null,
     })
@@ -984,6 +1025,14 @@ export default function LaborRightsConsultation() {
           setSessionContext((prev) => ({
             streamSeq: typeof seq === 'number' ? seq : prev.streamSeq,
           }))
+
+          // 直驱滚动：不等 React 批次，内容到达即跟随
+          if (shouldFollowStreamingBubbleRef.current && isNearBottomRef.current) {
+            const container = scrollContainerRef.current
+            if (container) {
+              scrollContainerTo(container.scrollHeight - container.clientHeight, 'instant' as ScrollBehavior)
+            }
+          }
         },
         onToolCall: (payload) => {
           const toolName = typeof payload.tool_name === 'string' ? payload.tool_name : '处理中'
