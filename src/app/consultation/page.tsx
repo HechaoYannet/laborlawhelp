@@ -1274,6 +1274,32 @@ export default function LaborRightsConsultation() {
         className={`flex-1 overflow-y-auto overscroll-contain px-3 md:px-5 ${isCompactLandscape ? 'py-3' : 'py-5 md:py-6'} ${scrollPaddingClass}`}
       >
         <div className={`mx-auto ${isCompactLandscape ? 'space-y-3' : 'space-y-4'} ${contentMaxWidth}`}>
+          {/* 骨架屏：会话初始化或恢复中 */}
+          {(sessionContext.status === 'initializing' || (messages.length === 0 && sessionContext.caseId && sessionContext.sessionStatus === 'active')) ? (
+            <div className="grid gap-3" role="status" aria-label="正在恢复会话">
+              <div className="animate-pulse rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 shadow-sm">
+                <div className="h-3 w-20 rounded bg-slate-200" />
+                <div className="mt-3 h-4 w-36 rounded bg-slate-200" />
+                <div className="mt-2 h-3 w-48 rounded bg-slate-200" />
+              </div>
+              <div className="flex items-start gap-3 animate-pulse">
+                <div className="h-8 w-8 shrink-0 rounded-full bg-slate-200" />
+                <div className="flex-1 space-y-2 rounded-2xl bg-white px-4 py-3">
+                  <div className="h-3 w-3/4 rounded bg-slate-200" />
+                  <div className="h-3 w-1/2 rounded bg-slate-200" />
+                </div>
+              </div>
+              <div className="flex items-start gap-3 animate-pulse">
+                <div className="h-8 w-8 shrink-0 rounded-full bg-slate-200" />
+                <div className="flex-1 space-y-2 rounded-2xl bg-white px-4 py-3">
+                  <div className="h-3 w-full rounded bg-slate-200" />
+                  <div className="h-3 w-2/3 rounded bg-slate-200" />
+                </div>
+              </div>
+              <span className="sr-only">正在连接会话...</span>
+            </div>
+          ) : (
+            <>
           <div className="grid gap-3">
             <div className="rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 shadow-sm">
               <div className="flex items-center justify-between gap-3">
@@ -1302,15 +1328,15 @@ export default function LaborRightsConsultation() {
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-600">
                   {latestToolEvent && (
-                    <span className="rounded-full bg-slate-100 px-3 py-1">
+                    <span className="rounded-full bg-slate-100 px-3 py-1 cursor-default">
                       {humanizeToolName(latestToolEvent.toolName)} · {latestToolEvent.status === 'completed' ? '已完成' : '处理中'}
                     </span>
                   )}
-                  <span className="rounded-full bg-slate-100 px-3 py-1">
+                  <span className="rounded-full bg-slate-100 px-3 py-1 cursor-default">
                     引用 {verifiedReferences.length} 条
                   </span>
                   {sessionContext.finalPayload?.ruleVersion && (
-                    <span className="rounded-full bg-slate-100 px-3 py-1">
+                    <span className="rounded-full bg-slate-100 px-3 py-1 cursor-default">
                       {sessionContext.finalPayload.ruleVersion}
                     </span>
                   )}
@@ -1320,6 +1346,8 @@ export default function LaborRightsConsultation() {
           </div>
 
           {renderConversation('mobile')}
+            </>
+          )}
         </div>
       </div>
 
