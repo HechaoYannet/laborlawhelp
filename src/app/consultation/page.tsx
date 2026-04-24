@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useSpeechRecognition } from '@/hooks/use-speech-recognition'
@@ -20,37 +20,27 @@ import {
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable'
 import { ConsultationResultCards } from '@/features/consultation/components/consultation-result-cards'
 import {
-  extractConsultationInfo,
   mergeConsultationInfo,
   consultationInfoToCaseProfile,
 } from '@/features/consultation/services/consultation-profile'
-import {
-  createCase,
-  createSession,
-  listSessionMessages,
-  streamSessionChat,
-} from '@/features/consultation/services/middleware-api'
+import { listSessionMessages } from '@/features/consultation/services/middleware-api'
 import { useCaseStore } from '@/hooks/use-case-store'
 import type { PanelImperativeHandle } from 'react-resizable-panels'
 import {
-  MIDDLEWARE_CLIENT_CAPABILITIES,
   CONSULTATION_SESSION_STORAGE_KEY,
   normalizeReferences,
-  normalizeCardActions,
   normalizeToolEvents,
-  pickFirstString,
-  buildCardActionPrompt,
-  sanitizeAssistantText,
-  splitStableMarkdown,
-  getMarkdownClassName,
-  nextToolEventCreatedAt,
   shortenId,
   humanizeToolName,
   createAnonymousOwnerToken,
   isSessionNotFoundError,
+  splitStableMarkdown,
+  getMarkdownClassName,
 } from '@/lib/consultation-utils'
-
-type FollowMode = 'none' | 'bottom' | 'streaming'
+import { useDeviceDetect } from '@/hooks/use-device-detect'
+import { useComposer } from '@/hooks/use-composer'
+import { useScrollManagement, type FollowMode } from '@/hooks/use-scroll-management'
+import { useStreamingChat } from '@/hooks/use-streaming-chat'
 
 export default function LaborRightsConsultation() {
   const middlewareModeEnabled = process.env.NEXT_PUBLIC_ENABLE_MIDDLEWARE_CHAT === 'true'
@@ -62,14 +52,6 @@ export default function LaborRightsConsultation() {
   const [inputValue, setInputValue] = useState('')
   const [isThinking, setIsThinking] = useState(false)
   const [displayText, setDisplayText] = useState('')
-  const [isWideScreen, setIsWideScreen] = useState(false)
-  const [isLandscape, setIsLandscape] = useState(false)
-  const [isCompactLandscape, setIsCompactLandscape] = useState(false)
-  const [composerHeight, setComposerHeight] = useState(140)
-  const [keyboardInset, setKeyboardInset] = useState(0)
-  const [isNearBottom, setIsNearBottom] = useState(true)
-  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
-  const [unreadCount, setUnreadCount] = useState(0)
   const [summaryCopied, setSummaryCopied] = useState(false)
   const [packageCopied, setPackageCopied] = useState(false)
 
@@ -88,16 +70,13 @@ export default function LaborRightsConsultation() {
     resetSessionContext,
   } = useCaseStore()
 
+  // Shared refs (used by multiple hooks and/or JSX rendering)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const desktopInputRef = useRef<HTMLTextAreaElement>(null)
-  const mobileInputRef = useRef<HTMLTextAreaElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const streamingBubbleRef = useRef<HTMLDivElement>(null)
-  const composerRef = useRef<HTMLDivElement>(null)
   const sidebarPanelRef = useRef<PanelImperativeHandle | null>(null)
   const lastMessageCountRef = useRef(0)
   const lastToolEventCountRef = useRef(0)
-  const streamedResponseRef = useRef('')
   const isNearBottomRef = useRef(true)
   const shouldFollowStreamingBubbleRef = useRef(true)
   const followModeRef = useRef<FollowMode>('bottom')
@@ -123,49 +102,21 @@ export default function LaborRightsConsultation() {
     window.localStorage.removeItem(CONSULTATION_SESSION_STORAGE_KEY)
   }, [])
 
-  // 自动滚动到底部
-  useEffect(() => {
-    isNearBottomRef.current = isNearBottom
-  }, [isNearBottom])
+  // 大屏与横屏状态
+  const { isWideScreen, isLandscape, isCompactLandscape } = useDeviceDetect()
 
-  useEffect(() => {
-    const hasNewMessage = messages.length > lastMessageCountRef.current
-    const hasNewToolEvent = sessionContext.toolEvents.length > lastToolEventCountRef.current
+  // 输入卡片与键盘管理
+  const {
+    composerHeight,
+    keyboardInset,
+    composerRef,
+    desktopInputRef,
+    mobileInputRef,
+    resizeTextarea,
+    resizeAllTextareas,
+  } = useComposer({ isWideScreen, isCompactLandscape, inputValue })
 
-    if ((hasNewMessage || hasNewToolEvent) && isNearBottomRef.current) {
-      followModeRef.current = 'bottom'
-      shouldFollowStreamingBubbleRef.current = hasNewMessage && isThinking
-      userScrollHoldUntilRef.current = 0
-
-      const container = scrollContainerRef.current
-      if (container) {
-        programmaticScrollUntilRef.current = Date.now() + 240
-        container.scrollTo({ top: container.scrollHeight - container.clientHeight, behavior: 'smooth' })
-      } else {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-      }
-    }
-
-    lastMessageCountRef.current = messages.length
-    lastToolEventCountRef.current = sessionContext.toolEvents.length
-  }, [isThinking, messages.length, sessionContext.toolEvents.length])
-
-  const resizeTextarea = useCallback((element?: HTMLTextAreaElement | null) => {
-    const target = element ?? desktopInputRef.current ?? mobileInputRef.current
-    if (!target) return
-
-    const maxHeight = isWideScreen ? 260 : isCompactLandscape ? 132 : 180
-    target.style.height = 'auto'
-    const nextHeight = Math.min(target.scrollHeight, maxHeight)
-    target.style.height = `${nextHeight}px`
-    target.style.overflowY = target.scrollHeight > maxHeight ? 'auto' : 'hidden'
-  }, [isCompactLandscape, isWideScreen])
-
-  const resizeAllTextareas = useCallback(() => {
-    resizeTextarea(desktopInputRef.current)
-    resizeTextarea(mobileInputRef.current)
-  }, [resizeTextarea])
-
+  // 滚动管理实用函数（使用共享 ref，保持在组件层）
   const scrollContainerTo = useCallback((top: number, behavior: ScrollBehavior = 'smooth') => {
     const container = scrollContainerRef.current
     if (!container) return
@@ -209,11 +160,6 @@ export default function LaborRightsConsultation() {
     }
   }, [getEffectiveViewportBounds])
 
-  // 输入框自动高度（达到上限后显示滚动条）
-  useLayoutEffect(() => {
-    resizeAllTextareas()
-  }, [inputValue, isCompactLandscape, isWideScreen, resizeAllTextareas])
-
   const followStreamingBubble = useCallback((behavior: ScrollBehavior = 'smooth') => {
     const container = scrollContainerRef.current
     const bubble = streamingBubbleRef.current
@@ -228,218 +174,71 @@ export default function LaborRightsConsultation() {
     return true
   }, [getStreamingBubbleMetrics, scrollContainerTo])
 
-  // 大屏与横屏状态
-  useEffect(() => {
-    const wideQuery = window.matchMedia('(min-width: 1280px)')
-    const landscapeQuery = window.matchMedia('(orientation: landscape)')
-    const compactLandscapeQuery = window.matchMedia('(orientation: landscape) and (max-height: 560px)')
+  // 流式聊天
+  const {
+    handleSend,
+    handleKeyDown,
+    toggleListening,
+    handleCardAction,
+  } = useStreamingChat({
+    sessionContext,
+    setSessionContext,
+    consultationInfo,
+    setConsultationInfo,
+    updateExtractedInfo,
+    middlewareModeEnabled,
+    middlewarePolicyVersion,
+    addMessage,
+    isThinking,
+    setIsThinking,
+    setDisplayText,
+    scrollContainerRef,
+    streamingBubbleRef,
+    followModeRef,
+    shouldFollowStreamingBubbleRef,
+    isNearBottomRef,
+    scrollContainerTo,
+    desktopInputRef,
+    mobileInputRef,
+    resizeAllTextareas,
+    inputValue,
+    isListening,
+    startListening,
+    stopListening,
+    clearPersistedMiddlewareSession,
+    persistMiddlewareSession,
+  })
 
-    const syncDeviceState = () => {
-      setIsWideScreen(wideQuery.matches)
-      setIsLandscape(landscapeQuery.matches)
-      setIsCompactLandscape(compactLandscapeQuery.matches)
-    }
-
-    syncDeviceState()
-    wideQuery.addEventListener('change', syncDeviceState)
-    landscapeQuery.addEventListener('change', syncDeviceState)
-    compactLandscapeQuery.addEventListener('change', syncDeviceState)
-
-    return () => {
-      wideQuery.removeEventListener('change', syncDeviceState)
-      landscapeQuery.removeEventListener('change', syncDeviceState)
-      compactLandscapeQuery.removeEventListener('change', syncDeviceState)
-    }
-  }, [])
-
-  // 监听输入卡片高度，动态留白避免消息与输入区重叠
-  useEffect(() => {
-    const composer = composerRef.current
-    if (!composer) return
-
-    const syncComposerHeight = () => {
-      const rect = composer.getBoundingClientRect()
-      setComposerHeight(Math.ceil(rect.height))
-    }
-
-    syncComposerHeight()
-    const observer = new ResizeObserver(syncComposerHeight)
-    observer.observe(composer)
-    window.addEventListener('resize', syncComposerHeight)
-
-    return () => {
-      observer.disconnect()
-      window.removeEventListener('resize', syncComposerHeight)
-    }
-  }, [])
-
-  // 软键盘弹起时抬升输入卡片，防止被遮挡
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const vv = window.visualViewport
-    if (!vv) return
-
-    const syncKeyboardInset = () => {
-      const rawInset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
-      const isLikelyKeyboard = rawInset > 70
-      setKeyboardInset(isLikelyKeyboard ? rawInset : 0)
-    }
-
-    syncKeyboardInset()
-    vv.addEventListener('resize', syncKeyboardInset)
-    vv.addEventListener('scroll', syncKeyboardInset)
-
-    return () => {
-      vv.removeEventListener('resize', syncKeyboardInset)
-      vv.removeEventListener('scroll', syncKeyboardInset)
-    }
-  }, [])
-
-  // 控制“一键到底”按钮显隐规则
-  useEffect(() => {
-    const container = scrollContainerRef.current
-    if (!container) return
-
-    const cancelFollowOnUserIntent = () => {
-      // 程序化滚动期间忽略用户事件误触
-      if (Date.now() < programmaticScrollUntilRef.current) return
-      // 打断正在进行的平滑滚动动画，让用户操控立即生效
-      const c = scrollContainerRef.current
-      if (c) {
-        c.scrollTo({ top: c.scrollTop, behavior: 'auto' })
-      }
-      followModeRef.current = 'none'
-      shouldFollowStreamingBubbleRef.current = false
-      userScrollHoldUntilRef.current = Date.now() + 300
-    }
-
-    const updateScrollButtonState = () => {
-      const hiddenThreshold = isCompactLandscape ? 50 : isLandscape ? 90 : 120
-      const showThreshold = isCompactLandscape ? 140 : isLandscape ? 220 : 300
-      const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight
-      const hasEnoughMessages = messages.length > 3
-      const nearBottom = distanceToBottom <= hiddenThreshold
-
-      // 程序化滚动期间，不修改跟随状态
-      if (Date.now() < programmaticScrollUntilRef.current) {
-        setIsNearBottom(nearBottom)
-        isNearBottomRef.current = nearBottom
-        if (nearBottom) {
-          setUnreadCount(0)
-        }
-        return
-      }
-
-      const isUserHoldActive = Date.now() < userScrollHoldUntilRef.current
-
-      setIsNearBottom(nearBottom)
-      isNearBottomRef.current = nearBottom
-      if (nearBottom && !isUserHoldActive) {
-        followModeRef.current = isThinking ? 'streaming' : 'bottom'
-        shouldFollowStreamingBubbleRef.current = isThinking
-      } else if (followModeRef.current === 'bottom') {
-        followModeRef.current = 'none'
-        shouldFollowStreamingBubbleRef.current = false
-      }
-
-      if (isThinking && streamingBubbleRef.current && !isUserHoldActive) {
-        const { bubbleBottomVisible, bubbleBottomInObservationBand } = getStreamingBubbleMetrics(container, streamingBubbleRef.current)
-
-        if (!nearBottom && bubbleBottomInObservationBand) {
-          followModeRef.current = 'streaming'
-          shouldFollowStreamingBubbleRef.current = true
-        } else if (!nearBottom && !bubbleBottomVisible && followModeRef.current !== 'bottom') {
-          followModeRef.current = 'none'
-          shouldFollowStreamingBubbleRef.current = false
-        }
-      }
-
-      if (nearBottom) {
-        setUnreadCount(0)
-      }
-
-      if (!hasEnoughMessages) {
-        setShowScrollToBottom(false)
-        return
-      }
-
-      if (distanceToBottom > showThreshold || unreadCount > 0) {
-        setShowScrollToBottom(true)
-      } else if (nearBottom) {
-        setShowScrollToBottom(false)
-      }
-    }
-
-    container.addEventListener('wheel', cancelFollowOnUserIntent, { passive: true })
-    container.addEventListener('touchmove', cancelFollowOnUserIntent, { passive: true })
-    container.addEventListener('scroll', updateScrollButtonState)
-    updateScrollButtonState()
-    return () => {
-      container.removeEventListener('wheel', cancelFollowOnUserIntent)
-      container.removeEventListener('touchmove', cancelFollowOnUserIntent)
-      container.removeEventListener('scroll', updateScrollButtonState)
-    }
-  }, [getStreamingBubbleMetrics, isThinking, messages.length, isLandscape, isCompactLandscape, unreadCount])
-
-  // 未读消息计数（未在底部时新增消息累加）
-  useEffect(() => {
-    if (messages.length > lastMessageCountRef.current && !isNearBottom) {
-      setUnreadCount((count) => count + (messages.length - lastMessageCountRef.current))
-    }
-  }, [messages.length, isNearBottom])
-
-  // 流式内容变化时跟随气泡：displayText 变化 + ResizeObserver 双重保障
-  useEffect(() => {
-    if (!isThinking || !displayText) return
-
-    const container = scrollContainerRef.current
-    const bubble = streamingBubbleRef.current
-    if (!container || !bubble) return
-
-    if (followModeRef.current === 'streaming' || (followModeRef.current === 'bottom' && isNearBottomRef.current)) {
-      shouldFollowStreamingBubbleRef.current = true
-      followModeRef.current = 'streaming'
-      followStreamingBubble('smooth')
-      return
-    }
-
-    if (Date.now() < userScrollHoldUntilRef.current) {
-      return
-    }
-
-    const { bubbleBottomInObservationBand } = getStreamingBubbleMetrics(container, bubble)
-    if (bubbleBottomInObservationBand) {
-      followModeRef.current = 'streaming'
-      shouldFollowStreamingBubbleRef.current = true
-      followStreamingBubble('smooth')
-    }
-  }, [displayText, followStreamingBubble, getStreamingBubbleMetrics, isThinking])
-
-  // 流式气泡 DOM 尺寸变化时即时跟随（绕过 React 批次延迟）
-  useEffect(() => {
-    const bubble = streamingBubbleRef.current
-    if (!bubble || !isThinking) return
-
-    // 气泡刚出现时落底一次
-    const container = scrollContainerRef.current
-    if (container) {
-      const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight
-      if (distanceToBottom > 0) {
-        followModeRef.current = 'streaming'
-        shouldFollowStreamingBubbleRef.current = true
-        followStreamingBubble('instant' as ScrollBehavior)
-      }
-    }
-
-    const ro = new ResizeObserver(() => {
-      if (shouldFollowStreamingBubbleRef.current && followModeRef.current !== 'none') {
-        followStreamingBubble('instant' as ScrollBehavior)
-      }
-    })
-    ro.observe(bubble)
-
-    return () => ro.disconnect()
-  }, [isThinking, followStreamingBubble])
+  // 滚动管理
+  const {
+    isNearBottom,
+    showScrollToBottom,
+    unreadCount,
+    scrollToBottom,
+  } = useScrollManagement({
+    isThinking,
+    displayText,
+    messages,
+    toolEvents: sessionContext.toolEvents,
+    isWideScreen,
+    isLandscape,
+    isCompactLandscape,
+    composerHeight,
+    scrollContainerRef,
+    streamingBubbleRef,
+    messagesEndRef,
+    followModeRef,
+    shouldFollowStreamingBubbleRef,
+    isNearBottomRef,
+    programmaticScrollUntilRef,
+    userScrollHoldUntilRef,
+    lastMessageCountRef,
+    lastToolEventCountRef,
+    scrollContainerTo,
+    getEffectiveViewportBounds,
+    getStreamingBubbleMetrics,
+    followStreamingBubble,
+  })
 
   // 语音输入同步到输入框
   useEffect(() => {
@@ -634,392 +433,6 @@ export default function LaborRightsConsultation() {
     updateExtractedInfo,
   ])
 
-  useEffect(() => {
-    if (!middlewareModeEnabled) return
-    if (!sessionContext.caseId && !sessionContext.sessionId && !sessionContext.anonymousToken) {
-      clearPersistedMiddlewareSession()
-      return
-    }
-
-    persistMiddlewareSession({
-      consultationInfo,
-      sessionContext: {
-        caseId: sessionContext.caseId,
-        sessionId: sessionContext.sessionId,
-        anonymousToken: sessionContext.anonymousToken,
-        traceId: sessionContext.traceId,
-        streamSeq: sessionContext.streamSeq,
-      },
-    })
-  }, [
-    clearPersistedMiddlewareSession,
-    consultationInfo,
-    middlewareModeEnabled,
-    persistMiddlewareSession,
-    sessionContext.anonymousToken,
-    sessionContext.caseId,
-    sessionContext.sessionId,
-    sessionContext.streamSeq,
-    sessionContext.traceId,
-  ])
-
-  const applyConsultationExtraction = (userMessage: string) => {
-    const newInfo = extractConsultationInfo(userMessage)
-    const info = mergeConsultationInfo(consultationInfo, newInfo)
-    setConsultationInfo(info)
-    updateExtractedInfo(consultationInfoToCaseProfile(info))
-
-    return { info, newInfo }
-  }
-
-  const ensureMiddlewareSession = async () => {
-    let caseId = sessionContext.caseId
-    let sessionId = sessionContext.sessionId
-    let anonymousToken = sessionContext.anonymousToken
-
-    if (!anonymousToken) {
-      anonymousToken = createAnonymousOwnerToken()
-    }
-
-    setSessionContext({
-      status: 'initializing',
-      isStreaming: false,
-      mode: 'middleware',
-      anonymousToken,
-      lastError: null,
-    })
-
-    if (!caseId) {
-      const caseResult = await createCase(anonymousToken)
-      caseId = caseResult.caseId
-      anonymousToken = caseResult.anonymousToken ?? anonymousToken
-    }
-
-    if (!caseId) {
-      throw new Error('中间件会话初始化失败：缺少案件标识')
-    }
-
-    if (!sessionId) {
-      const sessionResult = await createSession(caseId, anonymousToken)
-      sessionId = sessionResult.sessionId
-      anonymousToken = sessionResult.anonymousToken ?? anonymousToken
-    }
-
-    setSessionContext({
-      caseId,
-      sessionId,
-      sessionStatus: 'active',
-      anonymousToken,
-      status: 'active',
-      isStreaming: false,
-      mode: 'middleware',
-      lastError: null,
-    })
-
-    return { caseId, sessionId, anonymousToken }
-  }
-
-  const getAssistantResponseFromMiddleware = async (userMessage: string) => {
-    applyConsultationExtraction(userMessage)
-
-    const { sessionId, anonymousToken } = await ensureMiddlewareSession()
-    const locale = typeof navigator !== 'undefined' && navigator.language ? navigator.language : 'zh-CN'
-    let streamErrorCode = ''
-    let streamErrorMessage = ''
-    let streamErrorRetryable = false
-    let streamTraceId = ''
-    let finalSummary = ''
-
-    streamedResponseRef.current = ''
-    setDisplayText('')
-    setSessionContext({
-      status: 'streaming',
-      isStreaming: true,
-      currentMessageId: null,
-      traceId: null,
-      lastToolName: null,
-      lastToolResultSummary: null,
-      // 不清除 toolEvents：保留此前轮次的结果卡片，新卡片追加在后面
-      finalPayload: null,
-      lastError: null,
-    })
-
-    await streamSessionChat(
-      sessionId,
-      {
-        message: userMessage,
-        client_seq: sessionContext.streamSeq,
-        locale,
-        policy_version: middlewarePolicyVersion,
-        client_capabilities: [...MIDDLEWARE_CLIENT_CAPABILITIES],
-      },
-      {
-        onMessageStart: (payload) => {
-          const messageId = typeof payload.message_id === 'string' ? payload.message_id : null
-          const traceId = typeof payload.trace_id === 'string' ? payload.trace_id : null
-          streamedResponseRef.current = ''
-          setDisplayText('')
-          if (traceId) {
-            streamTraceId = traceId
-          }
-          setSessionContext({
-            currentMessageId: messageId,
-            traceId,
-          })
-        },
-        onContentDelta: (delta, seq) => {
-          if (!delta) return
-
-          streamedResponseRef.current += delta
-          setDisplayText(sanitizeAssistantText(streamedResponseRef.current))
-          setSessionContext((prev) => ({
-            streamSeq: typeof seq === 'number' ? seq : prev.streamSeq,
-          }))
-
-          // 直驱滚动：不等 React 批次，内容到达即跟随
-          if (shouldFollowStreamingBubbleRef.current && isNearBottomRef.current) {
-            const container = scrollContainerRef.current
-            if (container) {
-              scrollContainerTo(container.scrollHeight - container.clientHeight, 'instant' as ScrollBehavior)
-            }
-          }
-        },
-        onToolCall: (payload) => {
-          const toolName = typeof payload.tool_name === 'string' ? payload.tool_name : '处理中'
-          const traceId = typeof payload.trace_id === 'string' ? payload.trace_id : undefined
-          if (traceId) {
-            streamTraceId = traceId
-          }
-          setSessionContext((prev) => ({
-            traceId: traceId ?? prev.traceId,
-            lastToolName: toolName,
-            lastToolResultSummary: '等待工具结果',
-            toolEvents: [
-              ...prev.toolEvents,
-              {
-                toolName,
-                status: 'started',
-                summary: '工具调用中',
-                references: [],
-                traceId,
-                createdAt: nextToolEventCreatedAt(),
-              },
-            ],
-          }))
-        },
-        onToolResult: (payload) => {
-          const toolName = typeof payload.tool_name === 'string' ? payload.tool_name : null
-          const resultSummary =
-            typeof payload.result_summary === 'string' ? payload.result_summary : '工具调用已完成'
-          const references = normalizeReferences(payload.references)
-          const cardType = typeof payload.card_type === 'string' ? payload.card_type : undefined
-          const cardTitle = typeof payload.card_title === 'string' ? payload.card_title : undefined
-          const cardPayload = payload.card_payload && typeof payload.card_payload === 'object'
-            ? payload.card_payload as Record<string, unknown>
-            : undefined
-          const cardActions = normalizeCardActions(payload.card_actions)
-          const traceId = typeof payload.trace_id === 'string' ? payload.trace_id : undefined
-          if (traceId) {
-            streamTraceId = traceId
-          }
-
-          setSessionContext((prev) => {
-            const nextToolEvents = [...prev.toolEvents]
-            const reverseIndex = [...nextToolEvents]
-              .reverse()
-              .findIndex((event) => event.toolName === toolName && event.status === 'started')
-
-            if (reverseIndex >= 0) {
-              const targetIndex = nextToolEvents.length - reverseIndex - 1
-              nextToolEvents[targetIndex] = {
-                ...nextToolEvents[targetIndex],
-                status: 'completed',
-                summary: resultSummary,
-                references,
-                cardType,
-                cardTitle,
-                cardPayload,
-                cardActions,
-                traceId: traceId ?? nextToolEvents[targetIndex].traceId,
-              }
-            } else if (toolName) {
-              nextToolEvents.push({
-                toolName,
-                status: 'completed',
-                summary: resultSummary,
-                references,
-                cardType,
-                cardTitle,
-                cardPayload,
-                cardActions,
-                traceId,
-                createdAt: nextToolEventCreatedAt(),
-              })
-            }
-
-            return {
-              traceId: traceId ?? prev.traceId,
-              lastToolName: toolName,
-              lastToolResultSummary: resultSummary,
-              toolEvents: nextToolEvents,
-            }
-          })
-        },
-        onFinal: (payload) => {
-          const summary = typeof payload.summary === 'string' ? payload.summary : undefined
-          const finishReason = typeof payload.finish_reason === 'string' ? payload.finish_reason : undefined
-          const ruleVersion = typeof payload.rule_version === 'string' ? payload.rule_version : undefined
-          const references = normalizeReferences(payload.references)
-          const traceId = typeof payload.trace_id === 'string' ? payload.trace_id : undefined
-          if (traceId) {
-            streamTraceId = traceId
-          }
-          finalSummary = summary || ''
-
-          setSessionContext((prev) => ({
-            traceId: traceId ?? prev.traceId,
-            finalPayload: {
-              summary,
-              references,
-              ruleVersion,
-              finishReason,
-              traceId: traceId ?? prev.traceId ?? undefined,
-            },
-          }))
-        },
-        onMessageEnd: () => {
-          setSessionContext({
-            status: 'active',
-            sessionStatus: 'active',
-            isStreaming: false,
-          })
-        },
-        onError: (payload) => {
-          const rawCode = payload.code
-          streamErrorCode =
-            typeof rawCode === 'number' || typeof rawCode === 'string'
-              ? String(rawCode)
-              : 'OH_SERVICE_ERROR'
-          streamErrorMessage =
-            typeof payload.message === 'string' ? payload.message : '中间件流式会话失败'
-          streamErrorRetryable = Boolean(payload.retryable)
-          if (typeof payload.trace_id === 'string') {
-            streamTraceId = payload.trace_id
-          }
-        },
-      },
-      anonymousToken,
-    )
-
-    if (streamErrorMessage) {
-      const errorInfo = {
-        code: streamErrorCode || 'OH_SERVICE_ERROR',
-        message: streamErrorMessage,
-        retryable: streamErrorRetryable,
-      }
-      setSessionContext({
-        status: 'error',
-        isStreaming: false,
-        traceId: streamTraceId || sessionContext.traceId,
-        lastError: errorInfo,
-      })
-      throw new Error(errorInfo.message)
-    }
-
-    const finalText = sanitizeAssistantText(streamedResponseRef.current.trim() || finalSummary || '抱歉，本次未生成有效回复，请重试。')
-    addMessage({ role: 'assistant', content: finalText })
-    setDisplayText('')
-    setIsThinking(false)
-    setSessionContext({
-      status: 'active',
-      sessionStatus: 'active',
-      isStreaming: false,
-      traceId: streamTraceId || sessionContext.traceId,
-      lastError: null,
-    })
-  }
-
-  // 发送消息
-  const sendMessage = async (rawContent?: string) => {
-    const content = (rawContent ?? inputValue).trim()
-    if (!content || isThinking) return
-
-    addMessage({ role: 'user', content })
-    setInputValue('')
-    if (desktopInputRef.current) {
-      desktopInputRef.current.value = ''
-      desktopInputRef.current.style.height = 'auto'
-      desktopInputRef.current.style.overflowY = 'hidden'
-    }
-    if (mobileInputRef.current) {
-      mobileInputRef.current.value = ''
-      mobileInputRef.current.style.height = 'auto'
-      mobileInputRef.current.style.overflowY = 'hidden'
-    }
-    resizeAllTextareas()
-    requestAnimationFrame(() => {
-      resizeAllTextareas()
-    })
-    setIsThinking(true)
-
-    try {
-      if (!middlewareModeEnabled) {
-        throw new Error('当前版本仅支持中间件驱动咨询，请开启 NEXT_PUBLIC_ENABLE_MIDDLEWARE_CHAT=true。')
-      }
-
-      await getAssistantResponseFromMiddleware(content)
-    } catch (error) {
-      console.error('Error:', error)
-
-      setSessionContext({
-        status: 'error',
-        isStreaming: false,
-        lastError: {
-          code: 'CHAT_REQUEST_FAILED',
-          message: error instanceof Error ? error.message : '发送失败，请稍后重试。',
-          retryable: true,
-        },
-      })
-      addMessage({ role: 'assistant', content: '服务暂时不可用，请稍后重试。' })
-      setDisplayText('')
-      setIsThinking(false)
-    }
-  }
-
-  const handleSend = async () => {
-    await sendMessage()
-  }
-
-  // 语音切换
-  const toggleListening = () => {
-    if (isListening) {
-      stopListening()
-    } else {
-      startListening()
-    }
-  }
-
-  // 键盘发送
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
-    }
-  }
-
-  const scrollToBottom = () => {
-    followModeRef.current = isThinking ? 'streaming' : 'bottom'
-    shouldFollowStreamingBubbleRef.current = isThinking
-    userScrollHoldUntilRef.current = 0
-    const container = scrollContainerRef.current
-    if (container) {
-      scrollContainerTo(container.scrollHeight - container.clientHeight, 'smooth')
-    } else {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
-    setUnreadCount(0)
-  }
-
   const toggleDesktopSidebar = () => {
     if (sidebarPanelRef.current?.isCollapsed()) {
       sidebarPanelRef.current.expand()
@@ -1115,35 +528,6 @@ export default function LaborRightsConsultation() {
       window.setTimeout(() => setPackageCopied(false), 1600)
     } catch (error) {
       console.error('Failed to copy arbitration package:', error)
-    }
-  }
-
-  const handleCardAction = async (action: string, payload: Record<string, unknown>) => {
-    try {
-      if (action === 'copy_document' || action === 'copy_referral' || action === 'copy_summary') {
-        const text = JSON.stringify(payload, null, 2)
-        await navigator.clipboard.writeText(text)
-        return
-      }
-
-      if (action === 'download_document') {
-        const content = typeof payload.content === 'string' ? payload.content : JSON.stringify(payload, null, 2)
-        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = 'laborlawhelp-document.txt'
-        a.click()
-        URL.revokeObjectURL(url)
-        return
-      }
-
-      const nextPrompt = buildCardActionPrompt(action, payload)
-      if (nextPrompt) {
-        await sendMessage(nextPrompt)
-      }
-    } catch (error) {
-      console.error('card action failed:', error)
     }
   }
 
